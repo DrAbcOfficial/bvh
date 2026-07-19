@@ -45,6 +45,7 @@ set(INSTALL_CMAKE_FILES OFF CACHE BOOL "" FORCE)
 add_subdirectory(metamod/thirdparty/bullet3_fork EXCLUDE_FROM_ALL)
 
 add_library(bvh SHARED
+    src/engine/model_provider.cpp
     src/plugin/game_hooks.cpp
     src/plugin/h_export.cpp
     src/plugin/meta_plugin.cpp

@@ -8,7 +8,7 @@
 
 #include <extdll.h>
 #include <enginecallback.h>
-#include <util.h>
+#include <meta_api.h>
 #include <com_model.h>
 
 #include <BulletCollision/CollisionDispatch/btCollisionWorld.h>
@@ -286,15 +286,19 @@ void CCollisionWorld::ClearWorldGeometry()
 
 bool CCollisionWorld::BuildWorldGeometry(edict_t* worldEntity)
 {
-    if (m_collisionWorld == nullptr || worldEntity == nullptr ||
-        g_engfuncs.pfnGetModelPtr == nullptr) {
+    if (m_collisionWorld == nullptr || worldEntity == nullptr) {
         return false;
     }
 
-    auto* worldModel = static_cast<model_t*>(g_engfuncs.pfnGetModelPtr(worldEntity));
-    if (worldModel == nullptr || worldModel->type != mod_brush ||
+    model_t* worldModel = m_modelProvider.GetModel(worldEntity);
+    if (worldModel == nullptr) {
+        return false;
+    }
+    if (worldModel->type != mod_brush ||
         worldModel->surfaces == nullptr || worldModel->vertexes == nullptr ||
         worldModel->edges == nullptr || worldModel->surfedges == nullptr) {
+        LOG_ERROR(PLID, "World model %d is not a complete BSP collision model.",
+                  worldEntity->v.modelindex);
         return false;
     }
 
@@ -351,6 +355,8 @@ bool CCollisionWorld::BuildWorldGeometry(edict_t* worldEntity)
     }
 
     if (triangleCount == 0) {
+        LOG_ERROR(PLID, "World model %d produced no collision triangles.",
+                  worldEntity->v.modelindex);
         return false;
     }
 

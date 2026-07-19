@@ -5,6 +5,8 @@
 
 #include <LinearMath/btVector3.h>
 
+#include "engine/model_provider.h"
+
 struct edict_s;
 typedef struct edict_s edict_t;
 
@@ -65,6 +67,7 @@ private:
     std::unique_ptr<btBoxShape> m_worldBoundsShape;
     std::unique_ptr<btCollisionObject> m_worldBoundsObject;
 
+    CModelProvider m_modelProvider;
     std::unordered_map<int, CBoxCollider> m_colliders;
     bool m_active = false;
     bool m_worldReady = false;
