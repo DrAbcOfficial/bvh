@@ -38,7 +38,9 @@ cmake --build build --config Release --target bvh
 ```
 
 For Linux, keep `BVH_TARGET_32BIT=ON` and ensure the 32-bit C++ runtime and
-toolchain packages are installed.
+toolchain packages are installed. World BSP extraction first resolves the
+exported `sv` symbol and falls back to the Sven Co-op i686 GOT/PLT pattern used
+by FallGuys when that symbol is hidden.
 
 Install `bvh.dll` or `bvh.so` in `addons/metamod/dlls` and add it to
 `plugins.ini`. Load it before normal gameplay starts. It does not link to BDSC
