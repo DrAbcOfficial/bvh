@@ -11,6 +11,8 @@
 #include <meta_api.h>
 #include <com_model.h>
 
+#include "runtime/debug_log.h"
+
 #include <BulletCollision/CollisionDispatch/btCollisionWorld.h>
 #include <BulletCollision/CollisionDispatch/btDefaultCollisionConfiguration.h>
 #include <BulletCollision/CollisionDispatch/btCollisionDispatcher.h>
@@ -184,6 +186,7 @@ void CCollisionWorld::Synchronize()
             ++iterator;
         }
     }
+
 }
 
 void CCollisionWorld::RemoveEntity(edict_t* entity)
@@ -387,6 +390,7 @@ bool CCollisionWorld::BuildWorldGeometry(edict_t* worldEntity)
     }
 
     m_worldReady = true;
+    DebugLog(1, "Built world BVH with %d collision triangles.", triangleCount);
     return true;
 }
 

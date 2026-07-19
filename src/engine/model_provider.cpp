@@ -9,6 +9,8 @@
 #include <meta_api.h>
 #include <com_model.h>
 
+#include "runtime/debug_log.h"
+
 namespace {
 
 #ifdef _WIN32
@@ -120,7 +122,7 @@ bool CModelProvider::ResolvePrecachedModels()
         return false;
     }
 
-    LOG_MESSAGE(PLID, "Resolved sv.models at %p.", m_precachedModels);
+    DebugLog(1, "Resolved Windows sv.models at %p.", m_precachedModels);
     return true;
 #else
     if (gpMetaUtilFuncs == nullptr || gpMetaUtilFuncs->pfnGetEngineHandle == nullptr ||
@@ -197,7 +199,7 @@ bool CModelProvider::ResolvePrecachedModels()
         return false;
     }
 
-    LOG_MESSAGE(PLID, "Resolved Linux sv.models at %p.", m_precachedModels);
+    DebugLog(1, "Resolved Linux sv.models at %p.", m_precachedModels);
     return true;
 #endif
 }

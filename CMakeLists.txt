@@ -45,11 +45,13 @@ set(INSTALL_CMAKE_FILES OFF CACHE BOOL "" FORCE)
 add_subdirectory(metamod/thirdparty/bullet3_fork EXCLUDE_FROM_ALL)
 
 add_library(bvh SHARED
+    src/config/projectile_class_config.cpp
     src/engine/model_provider.cpp
     src/plugin/game_hooks.cpp
     src/plugin/h_export.cpp
     src/plugin/meta_plugin.cpp
     src/physics/collision_world.cpp
+    src/runtime/debug_log.cpp
     src/runtime/projectile_gate.cpp
 )
 
@@ -88,4 +90,8 @@ set_target_properties(bvh PROPERTIES
 install(TARGETS bvh
     RUNTIME DESTINATION addons/metamod/dlls
     LIBRARY DESTINATION addons/metamod/dlls
+)
+
+install(FILES config/projectile_classnames.cfg
+    DESTINATION addons/metamod/configs/bvh
 )

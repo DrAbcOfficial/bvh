@@ -9,7 +9,7 @@ static META_FUNCTIONS g_metaFunctionTable = {
     nullptr,
     nullptr,
     GetEntityAPI2,
-    nullptr,
+    GetEntityAPI2_Post,
     GetNewDLLFunctions,
     nullptr,
     nullptr,
