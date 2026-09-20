@@ -298,4 +298,19 @@ StartFrame 之后移动，快速列车/门可在一帧内切入弹道而预测�
 
 ## 10. 实施状态
 
-（待实施）
+| 批次 | commit | 内容 |
+|------|--------|------|
+| 前置 | `7149253` | 本评审文档（实体生命周期三方对照 + ReHLDS 语义校准） |
+| 1 | `e979609` | 4.2 thinkDue 窗口对齐 SV_RunThink；5.1 sweep 排除 owner；5.2/5.3 lookahead 单查询化（hitFraction 判定）+ 窗口内 Think 预判；5.5 fallback 原因/trust/ownerFilter 分解统计；6.1 ForgetExpired 降频至每 16 帧 |
+| 2 | `6ac313a` | 4.1 零 hull 弹体走 rayTest（点实体语义对齐 + 窄相降级为射线-三角形）；6.2 位移向量纳入 basevelocity；bvh_status 增列 ray/box 查询计数 |
+| 3 | bvh `3f9937f`、bdsc `fa301cf`、bdsccpp `50a29b6` | 4.3 pev.iuser2 轨迹静态位三方协议（1=静态信任 / 2=动态强制回退 / 0=未标记沿用配置）；README 增补字段占用表与 trust 使用建议 |
+
+**协议要点（实施时的定稿语义）**：`iuser2=1` 信任、`=2` 强制回退、`=0`（未标记的第三方类名）
+沿用 classname `trust` 配置——实体位可双向覆盖配置，杜绝 `trust` 误伤制导弹。
+
+**遗留（批次 4，按需，需实机验证）**：5.4 `pfnNumberOfEntities` 高水位扫描上界（先验证返回
+语义）、6.3 mesh collider 运动保守化、6.4 SOLID_BBOX 候选纳入（cvar）。
+
+**遗留验证（实机）**：§9 清单全部条目；重点为 thinkDue 修正后 interval 弹的转向帧对照
+（`bvh_debug=2`）、rayTest 贴墙/擦角/门缝/水下/天空的预测命中帧对照、trust 位灰度期间
+`bvh_status` 的 trust 计数与制导弹行为。
