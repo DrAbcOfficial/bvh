@@ -10,6 +10,7 @@ struct CFrameCounters {
     int culled = 0;
     int collision = 0;
     int fallback = 0;
+    int lookahead = 0;
     int sweeps = 0;
     int colliders = 0;
     double updateMilliseconds = 0.0;
@@ -31,6 +32,7 @@ private:
     std::uint64_t m_culledTotal = 0;
     std::uint64_t m_collisionTotal = 0;
     std::uint64_t m_fallbackTotal = 0;
+    std::uint64_t m_lookaheadTotal = 0;
     std::uint64_t m_sweepTotal = 0;
     double m_updateTotalMilliseconds = 0.0;
     double m_updatePeakMilliseconds = 0.0;

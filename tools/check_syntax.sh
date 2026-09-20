@@ -20,7 +20,7 @@ trap 'rm -f "$LOG"' EXIT
 
 for f in $FILES; do
     echo "===== $f"
-    if ! g++ -std=c++17 -fsyntax-only -Wall -Wextra $INC $DEFINES "$f" 2>"$LOG"; then
+    if ! g++ -std=c++17 -fsyntax-only -Wall -Wextra -Wpedantic -Wno-deprecated-copy $INC $DEFINES "$f" 2>"$LOG"; then
         FAILED=1
         head -24 "$LOG"
     else

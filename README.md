@@ -39,6 +39,15 @@ management without overwriting it. Run `bvh_reload` to apply edits without
 restarting; if the file cannot be read at that moment, the previous list
 stays in effect.
 
+A line may carry flags after the classname:
+
+```cfg
+bdsc_bullet_proj trust
+```
+
+`trust` keeps BVH culling across the projectile's `Think` callbacks. Enable
+it only for projectiles whose `Think` never changes velocity or trajectory.
+
 ## Behavior
 
 - Each configured `MOVETYPE_FLY` or `MOVETYPE_FLYMISSILE` entity is swept over
@@ -50,7 +59,8 @@ stays in effect.
   movement, `Touch`, damage, decals, callbacks, and removal.
 - The Bullet world mirrors the map BSP for prediction: sky and submerged
   solid faces block, while water boundary faces stay passable like the
-  engine treats them.
+  engine treats them. Yaw-rotated `SOLID_BSP` entities predict against
+  their real brush model; pitch/roll motion falls back to a fitted box.
 - Missing world data or an invalid query fails open and preserves engine
   collision.
 
@@ -61,3 +71,8 @@ Set `bvh_debug` to `0`, `1`, or `2` for disabled, lifecycle/event, or
 per-frame output. Run `bvh_debug_status` to print the effective values.
 Run `bvh_status` for aggregated per-frame statistics: culled ratio,
 predicted hits, fallbacks, sweeps, and update time.
+
+`bvh_lookahead_frames` (default `1`, off) sweeps a corridor spanning
+several frames and skips the sweeps for the rest of the window. Entities
+that enter the corridor mid-window are not seen until it expires, so
+treat values above `1` as experimental.

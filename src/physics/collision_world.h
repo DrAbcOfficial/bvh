@@ -55,10 +55,19 @@ private:
         edict_t* entity = nullptr;
         btVector3 halfExtents;
         btVector3 lastCenter;
+        float lastYaw = 0.0f;
         bool hasLastCenter = false;
         std::uint32_t lastSyncGeneration = 0;
+        // Non-null when the collider follows a per-brush-model mesh instead
+        // of a fitted box; the shape is shared via m_brushModelShapes.
+        btBvhTriangleMeshShape* meshShape = nullptr;
         std::unique_ptr<btBoxShape> shape;
         std::unique_ptr<btCollisionObject> object;
+    };
+
+    struct CBrushModelShape {
+        std::unique_ptr<btTriangleMesh> mesh;
+        std::unique_ptr<btBvhTriangleMeshShape> shape;
     };
 
     void Initialize();
@@ -70,6 +79,7 @@ private:
     void RemoveCollider(int entityIndex);
 
     [[nodiscard]] btBoxShape* ResolveProjectileShape(const btVector3& halfExtents) const;
+    [[nodiscard]] btBvhTriangleMeshShape* ResolveBrushModelShape(edict_t* entity);
     [[nodiscard]] bool IsTargetEntity(int entityIndex, const edict_t* entity) const;
 
     std::unique_ptr<btDefaultCollisionConfiguration> m_collisionConfiguration;
@@ -85,6 +95,7 @@ private:
 
     CModelProvider m_modelProvider;
     std::unordered_map<int, CBoxCollider> m_colliders;
+    std::unordered_map<int, CBrushModelShape> m_brushModelShapes;
     std::uint32_t m_syncGeneration = 0;
     mutable int m_sweepCount = 0;
     mutable std::map<std::tuple<int, int, int>, std::unique_ptr<btBoxShape>> m_shapeCache;

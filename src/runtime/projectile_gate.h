@@ -28,6 +28,8 @@ private:
         edict_t* entity = nullptr;
         int initialSolid = 0;
         bool suppressed = false;
+        int lookaheadSkip = 0;
+        btVector3 lookaheadVelocity;
     };
 
     [[nodiscard]] bool IsProjectile(const edict_t* entity) const;

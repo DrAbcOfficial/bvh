@@ -19,6 +19,11 @@ char g_enabledDefault[] = "1";
 cvar_t g_enabledCvar = {g_enabledName, g_enabledDefault, FCVAR_SERVER, 1.0f, nullptr};
 bool g_enabledRegistered = false;
 
+char g_lookaheadName[] = "bvh_lookahead_frames";
+char g_lookaheadDefault[] = "1";
+cvar_t g_lookaheadCvar = {g_lookaheadName, g_lookaheadDefault, FCVAR_SERVER, 1.0f, nullptr};
+bool g_lookaheadRegistered = false;
+
 }  // namespace
 
 namespace Bvh {
@@ -35,12 +40,33 @@ void RegisterRuntimeCvars()
         g_enabledRegistered = true;
     }
 
-    LOG_CONSOLE(PLID, "[BVH] Registered cvars: bvh_debug (0/1/2), bvh_enabled. Commands: bvh_status, bvh_reload, bvh_debug_status.");
+    if (!g_lookaheadRegistered) {
+        CVAR_REGISTER(&g_lookaheadCvar);
+        g_lookaheadRegistered = true;
+    }
+
+    LOG_CONSOLE(PLID, "[BVH] Registered cvars: bvh_debug (0/1/2), bvh_enabled, bvh_lookahead_frames. Commands: bvh_status, bvh_reload, bvh_debug_status.");
 }
 
 bool IsPluginEnabled()
 {
     return !g_enabledRegistered || g_enabledCvar.value > 0.5f;
+}
+
+int GetLookaheadFrames()
+{
+    if (!g_lookaheadRegistered) {
+        return 1;
+    }
+
+    int frames = static_cast<int>(g_lookaheadCvar.value);
+    if (frames < 1) {
+        frames = 1;
+    }
+    if (frames > kMaximumLookaheadFrames) {
+        frames = kMaximumLookaheadFrames;
+    }
+    return frames;
 }
 
 int GetDebugLevel()

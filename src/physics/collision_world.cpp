@@ -55,6 +55,21 @@ btTransform MakeTransform(const btVector3& origin)
     return transform;
 }
 
+// Brush models rotate around vertical in practice (doors, turntables); pitch
+// or roll falls back to the fitted box, which stays conservative.
+btTransform MakeYawTransform(const btVector3& origin, float yawDegrees)
+{
+    btTransform transform;
+    transform.setIdentity();
+    if (yawDegrees != 0.0f) {
+        constexpr btScalar kDegreesToRadians = btScalar(3.14159265358979323846) / btScalar(180.0);
+        transform.setRotation(btQuaternion(btVector3(0, 0, 1),
+                                           yawDegrees * kDegreesToRadians));
+    }
+    transform.setOrigin(origin);
+    return transform;
+}
+
 bool GetEntityBounds(const edict_t* entity, btVector3& center, btVector3& halfExtents,
                      bool includePredictedMotion)
 {
@@ -140,6 +155,76 @@ void CollectVisibleWorldSurfaces(const model_t& worldModel, const mnode_t* node,
     }
 
     CollectVisibleWorldSurfaces(worldModel, node->children[1], surfaces);
+}
+
+bool HasCompleteBrushData(const model_t& model)
+{
+    return model.type == mod_brush &&
+           model.surfaces != nullptr && model.vertexes != nullptr &&
+           model.edges != nullptr && model.surfedges != nullptr;
+}
+
+// Shared by the world and by per-brush-model colliders.
+std::unique_ptr<btTriangleMesh> BuildModelTriangleMesh(const model_t& model, int* triangleCountOut)
+{
+    auto triangleMesh = std::make_unique<btTriangleMesh>(true, false);
+    int triangleCount = 0;
+
+    std::vector<const msurface_t*> modelSurfaces;
+    if (model.nodes != nullptr && model.numnodes > 0) {
+        CollectVisibleWorldSurfaces(model, model.nodes, modelSurfaces);
+    } else {
+        modelSurfaces.reserve(static_cast<size_t>(model.numsurfaces));
+        for (int surfaceIndex = 0; surfaceIndex < model.numsurfaces; ++surfaceIndex) {
+            modelSurfaces.push_back(&model.surfaces[surfaceIndex]);
+        }
+    }
+
+    for (const msurface_t* surfacePtr : modelSurfaces) {
+        const msurface_t& surface = *surfacePtr;
+        if (IsIgnoredWorldSurface(surface) || surface.numedges < 3) {
+            continue;
+        }
+        if (surface.firstedge < 0 ||
+            surface.firstedge + surface.numedges > model.numsurfedges) {
+            continue;
+        }
+
+        std::vector<btVector3> vertices;
+        vertices.reserve(static_cast<size_t>(surface.numedges));
+
+        for (int edgeOffset = 0; edgeOffset < surface.numedges; ++edgeOffset) {
+            const int signedEdge = model.surfedges[surface.firstedge + edgeOffset];
+            const int edgeIndex = signedEdge >= 0 ? signedEdge : -signedEdge;
+            if (edgeIndex < 0 || edgeIndex >= model.numedges) {
+                vertices.clear();
+                break;
+            }
+
+            const medge_t& edge = model.edges[edgeIndex];
+            const int vertexIndex = signedEdge >= 0 ? edge.v[0] : edge.v[1];
+            if (vertexIndex < 0 || vertexIndex >= model.numvertexes) {
+                vertices.clear();
+                break;
+            }
+
+            const Vector& vertex = model.vertexes[vertexIndex].position;
+            vertices.emplace_back(vertex.x, vertex.y, vertex.z);
+        }
+
+        for (size_t vertexIndex = 2; vertexIndex < vertices.size(); ++vertexIndex) {
+            // Duplicate vertices are harmless for collision queries; skipping
+            // the dedup hash keeps large-map builds fast and small.
+            triangleMesh->addTriangle(vertices[0], vertices[vertexIndex - 1],
+                                      vertices[vertexIndex], false);
+            ++triangleCount;
+        }
+    }
+
+    if (triangleCountOut != nullptr) {
+        *triangleCountOut = triangleCount;
+    }
+    return triangleCount > 0 ? std::move(triangleMesh) : nullptr;
 }
 
 }  // namespace
@@ -342,6 +427,7 @@ void CCollisionWorld::ClearWorldGeometry()
     m_worldTriangleMesh.reset();
     m_worldTriangleCount = 0;
     m_shapeCache.clear();
+    m_brushModelShapes.clear();
 }
 
 bool CCollisionWorld::BuildWorldGeometry(edict_t* worldEntity)
@@ -354,69 +440,15 @@ bool CCollisionWorld::BuildWorldGeometry(edict_t* worldEntity)
     if (worldModel == nullptr) {
         return false;
     }
-    if (worldModel->type != mod_brush ||
-        worldModel->surfaces == nullptr || worldModel->vertexes == nullptr ||
-        worldModel->edges == nullptr || worldModel->surfedges == nullptr) {
+    if (!HasCompleteBrushData(*worldModel)) {
         LOG_ERROR(PLID, "World model %d is not a complete BSP collision model.",
                   worldEntity->v.modelindex);
         return false;
     }
 
-    auto triangleMesh = std::make_unique<btTriangleMesh>(true, false);
     int triangleCount = 0;
-
-    std::vector<const msurface_t*> worldSurfaces;
-    if (worldModel->nodes != nullptr && worldModel->numnodes > 0) {
-        CollectVisibleWorldSurfaces(*worldModel, worldModel->nodes, worldSurfaces);
-    } else {
-        worldSurfaces.reserve(static_cast<size_t>(worldModel->numsurfaces));
-        for (int surfaceIndex = 0; surfaceIndex < worldModel->numsurfaces; ++surfaceIndex) {
-            worldSurfaces.push_back(&worldModel->surfaces[surfaceIndex]);
-        }
-    }
-
-    for (const msurface_t* surfacePtr : worldSurfaces) {
-        const msurface_t& surface = *surfacePtr;
-        if (IsIgnoredWorldSurface(surface) || surface.numedges < 3) {
-            continue;
-        }
-        if (surface.firstedge < 0 ||
-            surface.firstedge + surface.numedges > worldModel->numsurfedges) {
-            continue;
-        }
-
-        std::vector<btVector3> vertices;
-        vertices.reserve(static_cast<size_t>(surface.numedges));
-
-        for (int edgeOffset = 0; edgeOffset < surface.numedges; ++edgeOffset) {
-            const int signedEdge = worldModel->surfedges[surface.firstedge + edgeOffset];
-            const int edgeIndex = signedEdge >= 0 ? signedEdge : -signedEdge;
-            if (edgeIndex < 0 || edgeIndex >= worldModel->numedges) {
-                vertices.clear();
-                break;
-            }
-
-            const medge_t& edge = worldModel->edges[edgeIndex];
-            const int vertexIndex = signedEdge >= 0 ? edge.v[0] : edge.v[1];
-            if (vertexIndex < 0 || vertexIndex >= worldModel->numvertexes) {
-                vertices.clear();
-                break;
-            }
-
-            const Vector& vertex = worldModel->vertexes[vertexIndex].position;
-            vertices.emplace_back(vertex.x, vertex.y, vertex.z);
-        }
-
-        for (size_t vertexIndex = 2; vertexIndex < vertices.size(); ++vertexIndex) {
-            // Duplicate vertices are harmless for collision queries; skipping
-            // the dedup hash keeps large-map builds fast and small.
-            triangleMesh->addTriangle(vertices[0], vertices[vertexIndex - 1],
-                                      vertices[vertexIndex], false);
-            ++triangleCount;
-        }
-    }
-
-    if (triangleCount == 0) {
+    auto triangleMesh = BuildModelTriangleMesh(*worldModel, &triangleCount);
+    if (triangleMesh == nullptr) {
         LOG_ERROR(PLID, "World model %d produced no collision triangles.",
                   worldEntity->v.modelindex);
         return false;
@@ -454,34 +486,85 @@ bool CCollisionWorld::BuildWorldGeometry(edict_t* worldEntity)
     return true;
 }
 
+btBvhTriangleMeshShape* CCollisionWorld::ResolveBrushModelShape(edict_t* entity)
+{
+    const int modelIndex = entity->v.modelindex;
+    if (modelIndex <= 0 || modelIndex >= 8192) {
+        return nullptr;
+    }
+
+    auto found = m_brushModelShapes.find(modelIndex);
+    if (found != m_brushModelShapes.end()) {
+        return found->second.shape.get();
+    }
+
+    // Negative results are cached too so a non-brush or broken model never
+    // repeats the model resolution on every frame.
+    CBrushModelShape entry;
+    model_t* model = m_modelProvider.GetModel(entity);
+    if (model != nullptr && HasCompleteBrushData(*model)) {
+        int triangleCount = 0;
+        entry.mesh = BuildModelTriangleMesh(*model, &triangleCount);
+        if (entry.mesh != nullptr) {
+            entry.shape = std::make_unique<btBvhTriangleMeshShape>(entry.mesh.get(), true, true);
+            DebugLog(1, "Built brush model %d BVH with %d collision triangles.",
+                     modelIndex, triangleCount);
+        }
+    }
+    auto [iterator, inserted] = m_brushModelShapes.emplace(modelIndex, std::move(entry));
+    (void)inserted;
+    return iterator->second.shape.get();
+}
+
 void CCollisionWorld::UpdateCollider(int entityIndex, edict_t* entity)
 {
+    // SOLID_BSP entities move as rigid brush models: predict with the real
+    // model mesh when it is available, and only when they stay yaw-rotated.
+    btBvhTriangleMeshShape* meshShape = nullptr;
+    if (entity->v.solid == SOLID_BSP && entity->v.angles.x == 0.0f &&
+        entity->v.angles.z == 0.0f) {
+        meshShape = ResolveBrushModelShape(entity);
+    }
+
+    const btVector3 origin(entity->v.origin.x, entity->v.origin.y, entity->v.origin.z);
     btVector3 center;
     btVector3 halfExtents;
-    if (!GetEntityBounds(entity, center, halfExtents, true)) {
+    if (meshShape == nullptr && !GetEntityBounds(entity, center, halfExtents, true)) {
         RemoveCollider(entityIndex);
         return;
     }
 
     auto existing = m_colliders.find(entityIndex);
-    if (existing != m_colliders.end() &&
-        (existing->second.entity != entity ||
-         !NearlyEqual(existing->second.halfExtents, halfExtents))) {
-        RemoveCollider(entityIndex);
-        existing = m_colliders.end();
+    if (existing != m_colliders.end()) {
+        CBoxCollider& collider = existing->second;
+        const bool sameKind = (collider.meshShape != nullptr) == (meshShape != nullptr);
+        const bool sameMesh = meshShape == nullptr || collider.meshShape == meshShape;
+        const bool sameSize = meshShape != nullptr ||
+                              NearlyEqual(collider.halfExtents, halfExtents);
+        if (collider.entity != entity || !sameKind || !sameMesh || !sameSize) {
+            RemoveCollider(entityIndex);
+            existing = m_colliders.end();
+        }
     }
 
     if (existing == m_colliders.end()) {
         CBoxCollider collider;
         collider.entity = entity;
-        collider.halfExtents = halfExtents;
-        collider.lastCenter = center;
+        collider.lastCenter = meshShape != nullptr ? origin : center;
+        collider.lastYaw = entity->v.angles.y;
         collider.hasLastCenter = true;
         collider.lastSyncGeneration = m_syncGeneration;
-        collider.shape = std::make_unique<btBoxShape>(halfExtents);
+        collider.meshShape = meshShape;
         collider.object = std::make_unique<btCollisionObject>();
-        collider.object->setCollisionShape(collider.shape.get());
-        collider.object->setWorldTransform(MakeTransform(center));
+        if (meshShape != nullptr) {
+            collider.object->setCollisionShape(meshShape);
+            collider.object->setWorldTransform(MakeYawTransform(origin, entity->v.angles.y));
+        } else {
+            collider.halfExtents = halfExtents;
+            collider.shape = std::make_unique<btBoxShape>(halfExtents);
+            collider.object->setCollisionShape(collider.shape.get());
+            collider.object->setWorldTransform(MakeTransform(center));
+        }
         collider.object->setUserIndex(entityIndex);
         m_collisionWorld->addCollisionObject(collider.object.get(),
                                              btBroadphaseProxy::DefaultFilter,
@@ -495,13 +578,22 @@ void CCollisionWorld::UpdateCollider(int entityIndex, edict_t* entity)
 
     // Static brush entities and resting clients rarely move; skip the
     // transform write and the broadphase leaf update until they do.
-    if (collider.hasLastCenter && NearlyEqual(collider.lastCenter, center)) {
+    const bool unchanged = collider.hasLastCenter &&
+                           NearlyEqual(collider.lastCenter,
+                                       meshShape != nullptr ? origin : center) &&
+                           (meshShape == nullptr || collider.lastYaw == entity->v.angles.y);
+    if (unchanged) {
         return;
     }
 
-    collider.object->setWorldTransform(MakeTransform(center));
+    if (meshShape != nullptr) {
+        collider.object->setWorldTransform(MakeYawTransform(origin, entity->v.angles.y));
+    } else {
+        collider.object->setWorldTransform(MakeTransform(center));
+    }
     m_collisionWorld->updateSingleAabb(collider.object.get());
-    collider.lastCenter = center;
+    collider.lastCenter = meshShape != nullptr ? origin : center;
+    collider.lastYaw = entity->v.angles.y;
     collider.hasLastCenter = true;
 }
 

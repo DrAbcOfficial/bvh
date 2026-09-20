@@ -11,6 +11,14 @@
 #include "config/projectile_class_config.h"
 #include "runtime/debug_log.h"
 
+namespace {
+
+// A projectile leaving its predicted linear path by more than this much ends
+// the multi-frame lookahead window.
+constexpr float kLookaheadVelocityEpsilon = 0.1f;
+
+}  // namespace
+
 namespace Bvh {
 
 CProjectileGate::CProjectileGate(CCollisionWorld& collisionWorld,
@@ -51,6 +59,7 @@ void CProjectileGate::Update()
         int culledCount = 0;
         int collisionCandidateCount = 0;
         int engineFallbackCount = 0;
+        int lookaheadSkippedCount = 0;
 
         // Single pass over the entity list: collider synchronization and
         // projectile management share one scan.
@@ -68,7 +77,10 @@ void CProjectileGate::Update()
                 m_trackedProjectiles.find(entityIndex) == m_trackedProjectiles.end()) {
                 continue;
             }
-            if (!IsProjectile(projectile)) {
+
+            const CClassFlags* flags =
+                m_projectileClassConfig.FindFlags(STRING(projectile->v.classname));
+            if (flags == nullptr) {
                 continue;
             }
             ++projectileCount;
@@ -77,7 +89,10 @@ void CProjectileGate::Update()
             if (tracked == m_trackedProjectiles.end()) {
                 tracked = TrackProjectile(entityIndex, projectile);
             } else if (tracked->second.entity != projectile) {
-                tracked->second = CTrackedProjectile{projectile, projectile->v.solid, false};
+                tracked->second.entity = projectile;
+                tracked->second.initialSolid = projectile->v.solid;
+                tracked->second.suppressed = false;
+                tracked->second.lookaheadSkip = 0;
                 DebugLog(1, "Projectile %d reused; BVH tracking reset.", entityIndex);
             }
 
@@ -86,18 +101,42 @@ void CProjectileGate::Update()
                 // solid state so a later collision still restores the spawn
                 // behavior.
                 tracked->second.suppressed = false;
+                tracked->second.lookaheadSkip = 0;
             }
 
             ++managedCount;
 
+            const bool thinkDue = projectile->v.nextthink > 0.0f &&
+                                  projectile->v.nextthink <= gpGlobals->time;
+
+            // Lookahead maintenance: a cleared multi-frame corridor skips the
+            // sweep for those frames; any path deviation ends the window.
+            if (tracked->second.lookaheadSkip > 0) {
+                const btVector3 velocity(projectile->v.velocity.x,
+                                         projectile->v.velocity.y,
+                                         projectile->v.velocity.z);
+                const bool thinkAllows = !(thinkDue && !flags->trustThink);
+                const bool velocityStable =
+                    (velocity - tracked->second.lookaheadVelocity).length2() <=
+                    kLookaheadVelocityEpsilon * kLookaheadVelocityEpsilon;
+                if (CanUseLinearSweep(projectile) && thinkAllows && velocityStable) {
+                    --tracked->second.lookaheadSkip;
+                    ++culledCount;
+                    ++lookaheadSkippedCount;
+                    continue;
+                }
+                tracked->second.lookaheadSkip = 0;
+            }
+
             // Think callbacks can retarget or accelerate BDSC projectiles after
             // StartFrame. Preserve engine collision for that frame instead of
-            // sweeping an already stale trajectory.
-            if (!CanUseLinearSweep(projectile) ||
-                (projectile->v.nextthink > 0.0f && projectile->v.nextthink <= gpGlobals->time)) {
+            // sweeping an already stale trajectory. A `trust` classname opts
+            // projectiles whose Think never alters the trajectory out of this.
+            if (!CanUseLinearSweep(projectile) || (thinkDue && !flags->trustThink)) {
                 if (tracked->second.suppressed) {
                     projectile->v.solid = tracked->second.initialSolid;
                     tracked->second.suppressed = false;
+                    tracked->second.lookaheadSkip = 0;
                     ++m_throttledRestoredThink;
                 }
                 ++engineFallbackCount;
@@ -108,6 +147,7 @@ void CProjectileGate::Update()
                 if (tracked->second.suppressed) {
                     projectile->v.solid = tracked->second.initialSolid;
                     tracked->second.suppressed = false;
+                    tracked->second.lookaheadSkip = 0;
                     ++m_throttledRestoredHit;
                 }
                 ++collisionCandidateCount;
@@ -119,6 +159,17 @@ void CProjectileGate::Update()
                 if (!wasCulled) {
                     ++m_throttledCulled;
                 }
+
+                const int lookaheadFrames = GetLookaheadFrames();
+                if (lookaheadFrames > 1 &&
+                    !m_collisionWorld.WouldProjectileHit(
+                        projectile, gpGlobals->frametime * static_cast<float>(lookaheadFrames))) {
+                    tracked->second.lookaheadSkip = lookaheadFrames - 1;
+                    tracked->second.lookaheadVelocity = btVector3(
+                        projectile->v.velocity.x,
+                        projectile->v.velocity.y,
+                        projectile->v.velocity.z);
+                }
             }
         }
 
@@ -127,10 +178,11 @@ void CProjectileGate::Update()
         counters.culled = culledCount;
         counters.collision = collisionCandidateCount;
         counters.fallback = engineFallbackCount;
+        counters.lookahead = lookaheadSkippedCount;
 
-        DebugLog(2, "Projectile frame: scanned=%d managed=%d culled=%d collision=%d fallback=%d.",
+        DebugLog(2, "Projectile frame: scanned=%d managed=%d culled=%d collision=%d fallback=%d lookahead=%d.",
                  projectileCount, managedCount, culledCount, collisionCandidateCount,
-                 engineFallbackCount);
+                 engineFallbackCount, lookaheadSkippedCount);
     }
 
     counters.colliders = m_collisionWorld.GetColliderCount();
@@ -198,8 +250,10 @@ bool CProjectileGate::CanUseLinearSweep(const edict_t* projectile) const
 std::unordered_map<int, CProjectileGate::CTrackedProjectile>::iterator
 CProjectileGate::TrackProjectile(int entityIndex, edict_t* projectile)
 {
-    const auto [iterator, inserted] = m_trackedProjectiles.emplace(
-        entityIndex, CTrackedProjectile{projectile, projectile->v.solid, false});
+    CTrackedProjectile tracked;
+    tracked.entity = projectile;
+    tracked.initialSolid = projectile->v.solid;
+    const auto [iterator, inserted] = m_trackedProjectiles.emplace(entityIndex, tracked);
     if (inserted) {
         DebugLog(1,
                  "Projectile %d added to BVH: solid=%d movetype=%d velocity=(%.1f %.1f %.1f).",

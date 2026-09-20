@@ -103,7 +103,7 @@ bool CProjectileClassConfig::Load()
         text.erase(0, 3);
     }
 
-    std::set<std::string, std::less<>> classnames;
+    std::map<std::string, CClassFlags, std::less<>> classnames;
     std::size_t lineStart = 0;
     while (lineStart < text.size()) {
         const std::size_t lineEnd = text.find_first_of("\r\n", lineStart);
@@ -121,7 +121,24 @@ bool CProjectileClassConfig::Load()
 
         line = Trim(line);
         if (!line.empty()) {
-            classnames.emplace(line.data(), line.size());
+            // "<classname> [flags...]" — currently only `trust` is defined.
+            const std::size_t nameEnd = line.find_first_of(" \t");
+            const std::string_view name = nameEnd == std::string_view::npos
+                ? line : line.substr(0, nameEnd);
+            CClassFlags flags;
+            std::string_view rest = nameEnd == std::string_view::npos
+                ? std::string_view{} : Trim(line.substr(nameEnd));
+            while (!rest.empty()) {
+                const std::size_t tokenEnd = rest.find_first_of(" \t");
+                const std::string_view token = tokenEnd == std::string_view::npos
+                    ? rest : rest.substr(0, tokenEnd);
+                if (token == "trust") {
+                    flags.trustThink = true;
+                }
+                rest = tokenEnd == std::string_view::npos
+                    ? std::string_view{} : Trim(rest.substr(tokenEnd));
+            }
+            classnames.emplace(std::string(name), flags);
         }
 
         if (lineEnd == std::string::npos) {
@@ -138,10 +155,19 @@ bool CProjectileClassConfig::Load()
     return true;
 }
 
+const CClassFlags* CProjectileClassConfig::FindFlags(const char* classname) const
+{
+    if (classname == nullptr) {
+        return nullptr;
+    }
+
+    const auto found = m_classnames.find(std::string_view(classname));
+    return found != m_classnames.end() ? &found->second : nullptr;
+}
+
 bool CProjectileClassConfig::IsManaged(const char* classname) const
 {
-    return classname != nullptr &&
-           m_classnames.find(std::string_view(classname)) != m_classnames.end();
+    return FindFlags(classname) != nullptr;
 }
 
 std::size_t CProjectileClassConfig::GetClassnameCount() const
