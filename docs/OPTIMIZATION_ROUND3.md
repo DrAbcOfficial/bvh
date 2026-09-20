@@ -312,7 +312,7 @@ StartFrame 之后移动，快速列车/门可在一帧内切入弹道而预测�
 | 1 | `e979609` | 4.2 thinkDue 窗口对齐 SV_RunThink；5.1 sweep 排除 owner；5.2/5.3 lookahead 单查询化（hitFraction 判定）+ 窗口内 Think 预判；5.5 fallback 原因/trust/ownerFilter 分解统计；6.1 ForgetExpired 降频至每 16 帧 |
 | 2 | `6ac313a` | 4.1 零 hull 弹体走 rayTest（点实体语义对齐 + 窄相降级为射线-三角形）；6.2 位移向量纳入 basevelocity；bvh_status 增列 ray/box 查询计数 |
 | 3 | bvh `3f9937f`、bdsc `fa301cf`、bdsccpp `50a29b6` | 4.3 轨迹标记三方协议 v1（`pev.iuser2` in-band：1=静态信任 / 2=动态强制回退 / 0=未标记沿用配置）；README 增补字段占用表与 trust 使用建议 |
-| 3r（协议修订） | 三仓各一 commit，见各自仓库 | 4.3 协议 v2：`iuser` 系列在 SC 有引擎侧含义，标记改由 bdsccpp `CGameObject` 携带（`m_iTrajectoryStatic`），bdsc 经 `g_EntityFuncs.GetGameObject()` 写入，bdsccpp 导出 `bdsc_bvh_get_trajectory_marker` 供 bvh 运行时动态解析（bdsc 缺位自然回退 classname 配置） |
+| 3r（协议修订） | bvh `dfa1db1`、bdsc `8b73736`、bdsccpp `42b43c5` | 4.3 协议 v2：`iuser` 系列在 SC 有引擎侧含义，标记改由 bdsccpp `CGameObject` 携带（`m_iTrajectoryStatic`），bdsc 经 `g_EntityFuncs.GetGameObject()` 写入，bdsccpp 导出 `bdsc_bvh_get_trajectory_marker` 供 bvh 运行时动态解析（bdsc 缺位自然回退 classname 配置） |
 
 **协议要点（v2 定稿语义）**：`CGameObject.m_iTrajectoryStatic` `1` 信任、`2` 强制回退、
 `0`/未标记沿用 classname `trust` 配置——实体标记可双向覆盖配置，杜绝 `trust` 误伤制导弹。
@@ -323,3 +323,10 @@ StartFrame 之后移动，快速列车/门可在一帧内切入弹道而预测�
 **遗留验证（实机）**：§9 清单全部条目；重点为 thinkDue 修正后 interval 弹的转向帧对照
 （`bvh_debug=2`）、rayTest 贴墙/擦角/门缝/水下/天空的预测命中帧对照、trust 位灰度期间
 `bvh_status` 的 trust 计数与制导弹行为。
+
+**实机验证（2026-09-20，F 盘测试服，详见 `docs/TEST_REPORT_2026-09-20.md`）**：
+批次 1–3 全部生效——世界 BVH 10026 三角形 / 43 collider；合成弹幕累计 26678 帧次管理、
+剔除率 98.9%、预测命中恢复 285 帧次、`fallback=0`；**sweeps=22262 全部走 ray 查询
+（box=0）**，零 hull 路由生效；**`trust=24/0`** 证明 `bdsccpp CGameObject → bdsc 导出 →
+bvh 动态解析` 全链路成立。遗留：行为面需真实玩家复核；bdsc DEV 分支因缺失
+`CChronoPoint` 定义文件无法独立编译（测试以 `b3b9359` + stub 部署）。
