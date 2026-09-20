@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
-#include <unordered_set>
 #include <vector>
 
 #include <extdll.h>
@@ -153,7 +152,6 @@ bool CCollisionWorld::Activate(edict_t* worldEntity)
     }
 
     m_active = true;
-    Synchronize();
     return true;
 }
 
@@ -165,25 +163,17 @@ void CCollisionWorld::Deactivate()
     ClearWorldGeometry();
 }
 
-void CCollisionWorld::Synchronize()
+void CCollisionWorld::BeginFrame()
 {
-    if (!m_active || !m_worldReady || gpGlobals == nullptr) {
+    if (!m_active || !m_worldReady) {
         return;
     }
 
-    std::unordered_set<int> activeColliders;
-    for (int index = 1; index < gpGlobals->maxEntities; ++index) {
-        edict_t* entity = INDEXENT(index);
-        if (!IsTargetEntity(index, entity)) {
-            continue;
-        }
-
-        activeColliders.insert(index);
-        UpdateCollider(index, entity);
-    }
+    ++m_syncGeneration;
+    m_sweepCount = 0;
 
     for (auto iterator = m_colliders.begin(); iterator != m_colliders.end();) {
-        if (activeColliders.find(iterator->first) == activeColliders.end()) {
+        if (iterator->second.lastSyncGeneration != m_syncGeneration) {
             const int entityIndex = iterator->first;
             ++iterator;
             RemoveCollider(entityIndex);
@@ -191,7 +181,15 @@ void CCollisionWorld::Synchronize()
             ++iterator;
         }
     }
+}
 
+void CCollisionWorld::SynchronizeEntity(int entityIndex, edict_t* entity)
+{
+    if (!m_active || !m_worldReady || !IsTargetEntity(entityIndex, entity)) {
+        return;
+    }
+
+    UpdateCollider(entityIndex, entity);
 }
 
 void CCollisionWorld::RemoveEntity(edict_t* entity)
@@ -206,6 +204,21 @@ void CCollisionWorld::RemoveEntity(edict_t* entity)
 bool CCollisionWorld::IsReady() const
 {
     return m_active && m_worldReady && m_collisionWorld != nullptr;
+}
+
+int CCollisionWorld::GetColliderCount() const
+{
+    return static_cast<int>(m_colliders.size());
+}
+
+int CCollisionWorld::GetSweepCount() const
+{
+    return m_sweepCount;
+}
+
+int CCollisionWorld::GetWorldTriangleCount() const
+{
+    return m_worldTriangleCount;
 }
 
 bool CCollisionWorld::WouldProjectileHit(const edict_t* projectile, float frameTime) const
@@ -237,6 +250,7 @@ bool CCollisionWorld::WouldProjectileHit(const edict_t* projectile, float frameT
     callback.m_collisionFilterMask = btBroadphaseProxy::DefaultFilter |
                                      btBroadphaseProxy::StaticFilter;
 
+    ++m_sweepCount;
     m_collisionWorld->convexSweepTest(&projectileShape, from, to, callback);
     return callback.hasHit();
 }
@@ -290,6 +304,7 @@ void CCollisionWorld::ClearWorldGeometry()
     m_worldMeshObject.reset();
     m_worldMeshShape.reset();
     m_worldTriangleMesh.reset();
+    m_worldTriangleCount = 0;
 }
 
 bool CCollisionWorld::BuildWorldGeometry(edict_t* worldEntity)
@@ -371,6 +386,7 @@ bool CCollisionWorld::BuildWorldGeometry(edict_t* worldEntity)
     }
 
     m_worldTriangleMesh = std::move(triangleMesh);
+    m_worldTriangleCount = triangleCount;
     m_worldMeshShape = std::make_unique<btBvhTriangleMeshShape>(m_worldTriangleMesh.get(),
                                                                   true, true);
     m_worldMeshObject = std::make_unique<btCollisionObject>();
@@ -422,6 +438,9 @@ void CCollisionWorld::UpdateCollider(int entityIndex, edict_t* entity)
         CBoxCollider collider;
         collider.entity = entity;
         collider.halfExtents = halfExtents;
+        collider.lastCenter = center;
+        collider.hasLastCenter = true;
+        collider.lastSyncGeneration = m_syncGeneration;
         collider.shape = std::make_unique<btBoxShape>(halfExtents);
         collider.object = std::make_unique<btCollisionObject>();
         collider.object->setCollisionShape(collider.shape.get());
@@ -434,8 +453,19 @@ void CCollisionWorld::UpdateCollider(int entityIndex, edict_t* entity)
         return;
     }
 
-    existing->second.object->setWorldTransform(MakeTransform(center));
-    m_collisionWorld->updateSingleAabb(existing->second.object.get());
+    CBoxCollider& collider = existing->second;
+    collider.lastSyncGeneration = m_syncGeneration;
+
+    // Static brush entities and resting clients rarely move; skip the
+    // transform write and the broadphase leaf update until they do.
+    if (collider.hasLastCenter && NearlyEqual(collider.lastCenter, center)) {
+        return;
+    }
+
+    collider.object->setWorldTransform(MakeTransform(center));
+    m_collisionWorld->updateSingleAabb(collider.object.get());
+    collider.lastCenter = center;
+    collider.hasLastCenter = true;
 }
 
 void CCollisionWorld::RemoveCollider(int entityIndex)

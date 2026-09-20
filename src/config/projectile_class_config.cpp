@@ -136,7 +136,8 @@ bool CProjectileClassConfig::Load()
 
 bool CProjectileClassConfig::IsManaged(const char* classname) const
 {
-    return classname != nullptr && m_classnames.find(classname) != m_classnames.end();
+    return classname != nullptr &&
+           m_classnames.find(std::string_view(classname)) != m_classnames.end();
 }
 
 std::size_t CProjectileClassConfig::GetClassnameCount() const

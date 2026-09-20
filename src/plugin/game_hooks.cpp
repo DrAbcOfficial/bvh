@@ -40,6 +40,9 @@ void OnGameInit()
         g_engfuncs.pfnAddServerCommand(const_cast<char*>("bvh_debug_status"), []() {
             Bvh::PrintDebugStatus();
         });
+        g_engfuncs.pfnAddServerCommand(const_cast<char*>("bvh_status"), []() {
+            g_projectileGate.PrintStats();
+        });
     }
     SET_META_RESULT(MRES_HANDLED);
 }

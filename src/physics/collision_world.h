@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 
@@ -31,17 +32,29 @@ public:
 
     bool Activate(edict_t* worldEntity);
     void Deactivate();
-    void Synchronize();
+
+    // Single-pass synchronization, driven by the gate's own entity scan:
+    // BeginFrame stamps a new generation and prunes colliders not re-marked
+    // by SynchronizeEntity during that frame.
+    void BeginFrame();
+    void SynchronizeEntity(int entityIndex, edict_t* entity);
     void RemoveEntity(edict_t* entity);
 
     [[nodiscard]] bool IsReady() const;
     [[nodiscard]] bool WouldProjectileHit(const edict_t* projectile,
                                           float frameTime) const;
 
+    [[nodiscard]] int GetColliderCount() const;
+    [[nodiscard]] int GetSweepCount() const;
+    [[nodiscard]] int GetWorldTriangleCount() const;
+
 private:
     struct CBoxCollider {
         edict_t* entity = nullptr;
         btVector3 halfExtents;
+        btVector3 lastCenter;
+        bool hasLastCenter = false;
+        std::uint32_t lastSyncGeneration = 0;
         std::unique_ptr<btBoxShape> shape;
         std::unique_ptr<btCollisionObject> object;
     };
@@ -69,6 +82,9 @@ private:
 
     CModelProvider m_modelProvider;
     std::unordered_map<int, CBoxCollider> m_colliders;
+    std::uint32_t m_syncGeneration = 0;
+    mutable int m_sweepCount = 0;
+    int m_worldTriangleCount = 0;
     bool m_active = false;
     bool m_worldReady = false;
 };

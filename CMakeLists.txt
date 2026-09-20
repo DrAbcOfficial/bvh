@@ -52,6 +52,7 @@ add_library(bvh SHARED
     src/plugin/meta_plugin.cpp
     src/physics/collision_world.cpp
     src/runtime/debug_log.cpp
+    src/runtime/perf_stats.cpp
     src/runtime/projectile_gate.cpp
 )
 

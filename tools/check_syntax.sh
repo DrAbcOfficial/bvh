@@ -8,7 +8,7 @@ set -u
 
 cd "$(dirname "$0")/.." || exit 1
 
-FILES="src/config/projectile_class_config.cpp src/engine/model_provider.cpp src/physics/collision_world.cpp src/runtime/debug_log.cpp src/runtime/projectile_gate.cpp src/plugin/h_export.cpp src/plugin/meta_plugin.cpp src/plugin/game_hooks.cpp"
+FILES="src/config/projectile_class_config.cpp src/engine/model_provider.cpp src/physics/collision_world.cpp src/runtime/debug_log.cpp src/runtime/perf_stats.cpp src/runtime/projectile_gate.cpp src/plugin/h_export.cpp src/plugin/meta_plugin.cpp src/plugin/game_hooks.cpp"
 INC="-Isrc -Imetamod/hlsdk/common -Imetamod/hlsdk/dlls -Imetamod/hlsdk/pm_shared -Imetamod/hlsdk/engine -Imetamod/metamod -Imetamod/thirdparty/bullet3_fork/src"
 # osdep.h switches on the lowercase predefined `linux`, which strict -std=c++17
 # does not define; the real CMake build passes the same spellings.
