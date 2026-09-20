@@ -192,7 +192,7 @@ bool CModelProvider::ResolvePrecachedModels()
         return false;
     }
 
-    m_precachedModels = reinterpret_cast<model_t* (**)[8192]>(
+    m_precachedModels = *reinterpret_cast<model_t* (**)[8192]>(
         static_cast<char*>(serverState) + kSvModelsOffset);
     if (m_precachedModels == nullptr) {
         LOG_ERROR(PLID, "The Linux sv.models address resolved to null.");

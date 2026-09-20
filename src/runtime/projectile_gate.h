@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <vector>
 
 #include "physics/collision_world.h"
 
@@ -37,6 +38,7 @@ private:
     const CProjectileClassConfig& m_projectileClassConfig;
     std::unordered_map<int, edict_t*> m_suppressedProjectiles;
     std::unordered_map<int, CTrackedProjectile> m_trackedProjectiles;
+    std::vector<int> m_staleScratch;
     bool m_hasWorldReadyState = false;
     bool m_lastWorldReady = false;
 };

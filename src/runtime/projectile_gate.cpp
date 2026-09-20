@@ -34,13 +34,13 @@ void CProjectileGate::Update()
         return;
     }
 
-    std::vector<int> staleProjectiles;
+    m_staleScratch.clear();
     for (const auto& [entityIndex, tracked] : m_trackedProjectiles) {
         if (tracked.entity == nullptr || tracked.entity->free || !IsProjectile(tracked.entity)) {
-            staleProjectiles.push_back(entityIndex);
+            m_staleScratch.push_back(entityIndex);
         }
     }
-    for (const int entityIndex : staleProjectiles) {
+    for (const int entityIndex : m_staleScratch) {
         const auto found = m_trackedProjectiles.find(entityIndex);
         ForgetTrackedProjectile(entityIndex, found == m_trackedProjectiles.end() ? nullptr : found->second.entity,
                                 "entity expired");

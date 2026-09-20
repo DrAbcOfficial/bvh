@@ -72,7 +72,9 @@ target_link_libraries(bvh PRIVATE
 
 target_compile_definitions(bvh PRIVATE
     $<$<PLATFORM_ID:Windows>:WIN32;_WINDOWS;_CRT_SECURE_NO_WARNINGS;NOMINMAX>
-    $<$<PLATFORM_ID:Linux>:LINUX;_LINUX>
+    # metamod's osdep.h switches on the lowercase predefined `linux`, which a
+    # strict -std=c++17 build does not define; spell it out explicitly.
+    $<$<PLATFORM_ID:Linux>:LINUX;_LINUX;linux>
 )
 
 if(MSVC)

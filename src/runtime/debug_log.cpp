@@ -31,19 +31,19 @@ void RegisterDebugCvar()
 
 int GetDebugLevel()
 {
-    if (!g_debugRegistered || g_engfuncs.pfnCVarGetFloat == nullptr) {
+    if (!g_debugRegistered) {
         return 0;
     }
 
-    const float level = CVAR_GET_FLOAT(g_debugName);
+    // The engine keeps registered cvars current in-place; reading the struct
+    // avoids a per-call engine string lookup in hot paths.
+    const float level = g_debugCvar.value;
     return level > 0.0f ? static_cast<int>(level) : 0;
 }
 
 void PrintDebugStatus()
 {
-    const float rawValue = g_debugRegistered && g_engfuncs.pfnCVarGetFloat != nullptr
-        ? CVAR_GET_FLOAT(g_debugName)
-        : 0.0f;
+    const float rawValue = g_debugRegistered ? g_debugCvar.value : 0.0f;
     LOG_CONSOLE(PLID, "[BVH] bvh_debug registered=%d raw=%.3f effective=%d.",
                 g_debugRegistered ? 1 : 0, rawValue, GetDebugLevel());
 }

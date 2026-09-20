@@ -90,6 +90,11 @@ public:
 
     bool needsCollision(btBroadphaseProxy* proxy) const override
     {
+        // Boolean query: once any candidate hit, skip all remaining candidates.
+        if (hasHit()) {
+            return false;
+        }
+
         if (!btCollisionWorld::ClosestConvexResultCallback::needsCollision(proxy)) {
             return false;
         }
@@ -351,8 +356,10 @@ bool CCollisionWorld::BuildWorldGeometry(edict_t* worldEntity)
         }
 
         for (size_t vertexIndex = 2; vertexIndex < vertices.size(); ++vertexIndex) {
+            // Duplicate vertices are harmless for collision queries; skipping
+            // the dedup hash keeps large-map builds fast and small.
             triangleMesh->addTriangle(vertices[0], vertices[vertexIndex - 1],
-                                      vertices[vertexIndex], true);
+                                      vertices[vertexIndex], false);
             ++triangleCount;
         }
     }
