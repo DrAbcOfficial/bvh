@@ -106,8 +106,11 @@ bool GetEntityBounds(const edict_t* entity, btVector3& center, btVector3& halfEx
 
 class CProjectileSweepCallback final : public btCollisionWorld::ClosestConvexResultCallback {
 public:
-    CProjectileSweepCallback(const btVector3& from, const btVector3& to)
-        : btCollisionWorld::ClosestConvexResultCallback(from, to)
+    CProjectileSweepCallback(const btVector3& from, const btVector3& to,
+                             int ownerIndex, int* ownerFilteredCounter)
+        : btCollisionWorld::ClosestConvexResultCallback(from, to),
+          m_ownerIndex(ownerIndex),
+          m_ownerFilteredCounter(ownerFilteredCounter)
     {
     }
 
@@ -123,8 +126,25 @@ public:
         }
 
         const auto* object = static_cast<const btCollisionObject*>(proxy->m_clientObject);
-        return object != nullptr && object->getUserIndex() != kWorldBoundsUserIndex;
+        if (object == nullptr) {
+            return false;
+        }
+
+        const int userIndex = object->getUserIndex();
+        if (m_ownerIndex > 0 && userIndex == m_ownerIndex) {
+            // GoldSrc projectile movement never collides with the shooter, so
+            // a muzzle-frame overlap must not count as a predicted hit.
+            if (m_ownerFilteredCounter != nullptr) {
+                ++*m_ownerFilteredCounter;
+            }
+            return false;
+        }
+        return userIndex != kWorldBoundsUserIndex;
     }
+
+private:
+    int m_ownerIndex = -1;
+    int* m_ownerFilteredCounter = nullptr;
 };
 
 bool IsIgnoredWorldSurface(const msurface_t& surface)
@@ -267,6 +287,7 @@ void CCollisionWorld::BeginFrame()
 
     ++m_syncGeneration;
     m_sweepCount = 0;
+    m_ownerFilteredCount = 0;
 
     for (auto iterator = m_colliders.begin(); iterator != m_colliders.end();) {
         if (iterator->second.lastSyncGeneration != m_syncGeneration) {
@@ -317,11 +338,16 @@ int CCollisionWorld::GetWorldTriangleCount() const
     return m_worldTriangleCount;
 }
 
-bool CCollisionWorld::WouldProjectileHit(const edict_t* projectile, float frameTime) const
+int CCollisionWorld::GetOwnerFilteredCount() const
+{
+    return m_ownerFilteredCount;
+}
+
+float CCollisionWorld::SweepProjectile(const edict_t* projectile, float frameTime) const
 {
     if (!IsReady() || projectile == nullptr || !std::isfinite(frameTime) || frameTime <= 0.0f) {
         // A missing or invalid query must leave GoldSrc collision authoritative.
-        return true;
+        return 0.0f;
     }
 
     btVector3 center;
@@ -335,20 +361,25 @@ bool CCollisionWorld::WouldProjectileHit(const edict_t* projectile, float frameT
                              projectile->v.velocity.y,
                              projectile->v.velocity.z);
     if (velocity.length2() <= SIMD_EPSILON) {
-        return false;
+        return 1.0f;
     }
 
     const btTransform from = MakeTransform(center);
     const btTransform to = MakeTransform(center + velocity * frameTime);
     btBoxShape* projectileShape = ResolveProjectileShape(halfExtents);
-    CProjectileSweepCallback callback(from.getOrigin(), to.getOrigin());
+
+    const int ownerIndex = projectile->v.owner != nullptr ? ENTINDEX(projectile->v.owner) : 0;
+    int ownerFiltered = 0;
+    CProjectileSweepCallback callback(from.getOrigin(), to.getOrigin(),
+                                      ownerIndex, ownerIndex > 0 ? &ownerFiltered : nullptr);
     callback.m_collisionFilterGroup = btBroadphaseProxy::DefaultFilter;
     callback.m_collisionFilterMask = btBroadphaseProxy::DefaultFilter |
                                      btBroadphaseProxy::StaticFilter;
 
     ++m_sweepCount;
     m_collisionWorld->convexSweepTest(projectileShape, from, to, callback);
-    return callback.hasHit();
+    m_ownerFilteredCount += ownerFiltered;
+    return callback.m_closestHitFraction;
 }
 
 btBoxShape* CCollisionWorld::ResolveProjectileShape(const btVector3& halfExtents) const

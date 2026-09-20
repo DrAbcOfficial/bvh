@@ -51,7 +51,12 @@ void CProjectileGate::Update()
     if (!worldReady || !pluginEnabled) {
         RestoreSuppressedProjectiles();
     } else {
-        ForgetExpiredProjectiles();
+        // FreeEntPrivateData is the primary untrack path (game hook); this
+        // scan is only a safety net for edict reuse, so run it at a reduced
+        // rate instead of every frame.
+        if ((++m_updateCounter & 15u) == 0u) {
+            ForgetExpiredProjectiles();
+        }
         m_collisionWorld.BeginFrame();
 
         int projectileCount = 0;
@@ -59,6 +64,9 @@ void CProjectileGate::Update()
         int culledCount = 0;
         int collisionCandidateCount = 0;
         int engineFallbackCount = 0;
+        int fallbackThinkCount = 0;
+        int fallbackMovetypeCount = 0;
+        int trustThinkCount = 0;
         int lookaheadSkippedCount = 0;
 
         // Single pass over the entity list: collider synchronization and
@@ -106,8 +114,14 @@ void CProjectileGate::Update()
 
             ++managedCount;
 
+            // SV_RunThink fires Think when nextthink falls anywhere within
+            // this frame (nextthink <= time + frametime), before the move.
+            // Aligning the fallback window with that keeps mid-frame
+            // trajectory-rewriting Thinks from being predicted with stale
+            // velocities.
             const bool thinkDue = projectile->v.nextthink > 0.0f &&
-                                  projectile->v.nextthink <= gpGlobals->time;
+                                  projectile->v.nextthink <= gpGlobals->time + gpGlobals->frametime;
+            const bool linearSweep = CanUseLinearSweep(projectile);
 
             // Lookahead maintenance: a cleared multi-frame corridor skips the
             // sweep for those frames; any path deviation ends the window.
@@ -119,7 +133,7 @@ void CProjectileGate::Update()
                 const bool velocityStable =
                     (velocity - tracked->second.lookaheadVelocity).length2() <=
                     kLookaheadVelocityEpsilon * kLookaheadVelocityEpsilon;
-                if (CanUseLinearSweep(projectile) && thinkAllows && velocityStable) {
+                if (linearSweep && thinkAllows && velocityStable) {
                     --tracked->second.lookaheadSkip;
                     ++culledCount;
                     ++lookaheadSkippedCount;
@@ -132,7 +146,7 @@ void CProjectileGate::Update()
             // StartFrame. Preserve engine collision for that frame instead of
             // sweeping an already stale trajectory. A `trust` classname opts
             // projectiles whose Think never alters the trajectory out of this.
-            if (!CanUseLinearSweep(projectile) || (thinkDue && !flags->trustThink)) {
+            if (!linearSweep || (thinkDue && !flags->trustThink)) {
                 if (tracked->second.suppressed) {
                     projectile->v.solid = tracked->second.initialSolid;
                     tracked->second.suppressed = false;
@@ -140,10 +154,34 @@ void CProjectileGate::Update()
                     ++m_throttledRestoredThink;
                 }
                 ++engineFallbackCount;
+                if (linearSweep) {
+                    ++fallbackThinkCount;
+                } else {
+                    ++fallbackMovetypeCount;
+                }
                 continue;
             }
+            if (thinkDue && flags->trustThink) {
+                // A due Think on a trusted projectile: sweep proceeds, count
+                // how often the trust decision pays off.
+                ++trustThinkCount;
+            }
 
-            if (m_collisionWorld.WouldProjectileHit(projectile, gpGlobals->frametime)) {
+            // A multi-frame corridor is only safe while no Think can fire
+            // inside it: SV_RunThink would run one before the move, so
+            // mid-window Think frames must not be skipped (trusted
+            // projectiles excepted).
+            const float corridorFrames = static_cast<float>(GetLookaheadFrames());
+            const bool corridorThinkSafe =
+                flags->trustThink ||
+                projectile->v.nextthink <= 0.0f ||
+                projectile->v.nextthink > gpGlobals->time + gpGlobals->frametime * corridorFrames;
+            const float queryFrames = corridorFrames > 1.0f && corridorThinkSafe ? corridorFrames : 1.0f;
+            const float hitFraction = m_collisionWorld.SweepProjectile(
+                projectile, gpGlobals->frametime * queryFrames);
+            const bool predictedHit = hitFraction < 1.0f && hitFraction * queryFrames <= 1.0f;
+
+            if (predictedHit) {
                 if (tracked->second.suppressed) {
                     projectile->v.solid = tracked->second.initialSolid;
                     tracked->second.suppressed = false;
@@ -160,11 +198,11 @@ void CProjectileGate::Update()
                     ++m_throttledCulled;
                 }
 
-                const int lookaheadFrames = GetLookaheadFrames();
-                if (lookaheadFrames > 1 &&
-                    !m_collisionWorld.WouldProjectileHit(
-                        projectile, gpGlobals->frametime * static_cast<float>(lookaheadFrames))) {
-                    tracked->second.lookaheadSkip = lookaheadFrames - 1;
+                if (queryFrames > 1.0f) {
+                    // The corridor was clear this frame and the hit (if any)
+                    // lies in a later frame: skip the frames before it.
+                    const int hitFrame = static_cast<int>(hitFraction * queryFrames);
+                    tracked->second.lookaheadSkip = hitFrame - 1;
                     tracked->second.lookaheadVelocity = btVector3(
                         projectile->v.velocity.x,
                         projectile->v.velocity.y,
@@ -178,11 +216,16 @@ void CProjectileGate::Update()
         counters.culled = culledCount;
         counters.collision = collisionCandidateCount;
         counters.fallback = engineFallbackCount;
+        counters.fallbackThink = fallbackThinkCount;
+        counters.fallbackMovetype = fallbackMovetypeCount;
+        counters.trustThink = trustThinkCount;
+        counters.ownerFiltered = m_collisionWorld.GetOwnerFilteredCount();
         counters.lookahead = lookaheadSkippedCount;
 
-        DebugLog(2, "Projectile frame: scanned=%d managed=%d culled=%d collision=%d fallback=%d lookahead=%d.",
+        DebugLog(2, "Projectile frame: scanned=%d managed=%d culled=%d collision=%d fallback=%d (think=%d move=%d trust=%d ownerFilter=%d) lookahead=%d.",
                  projectileCount, managedCount, culledCount, collisionCandidateCount,
-                 engineFallbackCount, lookaheadSkippedCount);
+                 engineFallbackCount, fallbackThinkCount, fallbackMovetypeCount,
+                 trustThinkCount, counters.ownerFiltered, lookaheadSkippedCount);
     }
 
     counters.colliders = m_collisionWorld.GetColliderCount();

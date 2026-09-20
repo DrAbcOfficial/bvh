@@ -46,6 +46,7 @@ private:
     std::unordered_map<int, CTrackedProjectile> m_trackedProjectiles;
     std::vector<int> m_staleScratch;
     CPerfStats m_perfStats;
+    std::uint32_t m_updateCounter = 0;
     bool m_hasWorldReadyState = false;
     bool m_lastWorldReady = false;
     bool m_hasEnabledState = false;

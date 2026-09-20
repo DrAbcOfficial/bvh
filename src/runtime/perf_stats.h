@@ -10,8 +10,16 @@ struct CFrameCounters {
     int culled = 0;
     int collision = 0;
     int fallback = 0;
+    // Fallback causes: a due Think inside the frame versus a non-linear
+    // movetype. The two always sum to `fallback`.
+    int fallbackThink = 0;
+    int fallbackMovetype = 0;
+    // Trusted-projectile frames where a due Think was swept instead of
+    // falling back.
+    int trustThink = 0;
     int lookahead = 0;
     int sweeps = 0;
+    int ownerFiltered = 0;
     int colliders = 0;
     double updateMilliseconds = 0.0;
 };
@@ -32,6 +40,10 @@ private:
     std::uint64_t m_culledTotal = 0;
     std::uint64_t m_collisionTotal = 0;
     std::uint64_t m_fallbackTotal = 0;
+    std::uint64_t m_fallbackThinkTotal = 0;
+    std::uint64_t m_fallbackMovetypeTotal = 0;
+    std::uint64_t m_trustThinkTotal = 0;
+    std::uint64_t m_ownerFilteredTotal = 0;
     std::uint64_t m_lookaheadTotal = 0;
     std::uint64_t m_sweepTotal = 0;
     double m_updateTotalMilliseconds = 0.0;

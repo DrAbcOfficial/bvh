@@ -43,11 +43,19 @@ public:
     void RemoveEntity(edict_t* entity);
 
     [[nodiscard]] bool IsReady() const;
-    [[nodiscard]] bool WouldProjectileHit(const edict_t* projectile,
-                                          float frameTime) const;
+
+    // Sweep the projectile over `frameTime` seconds of linear motion and
+    // return the closest hit fraction in [0, 1]: anything below 1.0 is a
+    // predicted collision, 1.0 means clear. Invalid queries return 0.0 so a
+    // missing prediction fails open and leaves GoldSrc authoritative.
+    [[nodiscard]] float SweepProjectile(const edict_t* projectile,
+                                        float frameTime) const;
 
     [[nodiscard]] int GetColliderCount() const;
     [[nodiscard]] int GetSweepCount() const;
+    // Sweeps in the current frame whose broadphase walk encountered the
+    // projectile's owner collider and skipped it (muzzle-frame false hits).
+    [[nodiscard]] int GetOwnerFilteredCount() const;
     [[nodiscard]] int GetWorldTriangleCount() const;
 
 private:
@@ -98,6 +106,7 @@ private:
     std::unordered_map<int, CBrushModelShape> m_brushModelShapes;
     std::uint32_t m_syncGeneration = 0;
     mutable int m_sweepCount = 0;
+    mutable int m_ownerFilteredCount = 0;
     mutable std::map<std::tuple<int, int, int>, std::unique_ptr<btBoxShape>> m_shapeCache;
     int m_worldTriangleCount = 0;
     bool m_active = false;
