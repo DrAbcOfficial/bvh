@@ -17,6 +17,13 @@ namespace {
 // the multi-frame lookahead window.
 constexpr float kLookaheadVelocityEpsilon = 0.1f;
 
+// Per-entity trajectory-static protocol (docs/OPTIMIZATION_ROUND3.md 4.3):
+// bdsc/bdsccpp stamp pev.iuser2 at spawn. 1 = Think never rewrites velocity
+// or trajectory (trusted), 2 = Think may rewrite it (never trust), 0 =
+// unmarked third-party entities fall back to the classname `trust` flag.
+constexpr int kTrajectoryStaticMarker = 1;
+constexpr int kTrajectoryDynamicMarker = 2;
+
 }  // namespace
 
 namespace Bvh {
@@ -67,6 +74,7 @@ void CProjectileGate::Update()
         int fallbackThinkCount = 0;
         int fallbackMovetypeCount = 0;
         int trustThinkCount = 0;
+        int trustEntityCount = 0;
         int lookaheadSkippedCount = 0;
 
         // Single pass over the entity list: collider synchronization and
@@ -122,6 +130,10 @@ void CProjectileGate::Update()
             const bool thinkDue = projectile->v.nextthink > 0.0f &&
                                   projectile->v.nextthink <= gpGlobals->time + gpGlobals->frametime;
             const bool linearSweep = CanUseLinearSweep(projectile);
+            const int entityTrust = projectile->v.iuser2 == kTrajectoryStaticMarker ? 1 :
+                                    projectile->v.iuser2 == kTrajectoryDynamicMarker ? 0 : -1;
+            const bool thinkTrusted = entityTrust == 1 ||
+                                      (entityTrust == -1 && flags->trustThink);
 
             // Lookahead maintenance: a cleared multi-frame corridor skips the
             // sweep for those frames; any path deviation ends the window.
@@ -129,7 +141,7 @@ void CProjectileGate::Update()
                 const btVector3 velocity(projectile->v.velocity.x,
                                          projectile->v.velocity.y,
                                          projectile->v.velocity.z);
-                const bool thinkAllows = !(thinkDue && !flags->trustThink);
+                const bool thinkAllows = !(thinkDue && !thinkTrusted);
                 const bool velocityStable =
                     (velocity - tracked->second.lookaheadVelocity).length2() <=
                     kLookaheadVelocityEpsilon * kLookaheadVelocityEpsilon;
@@ -144,9 +156,10 @@ void CProjectileGate::Update()
 
             // Think callbacks can retarget or accelerate BDSC projectiles after
             // StartFrame. Preserve engine collision for that frame instead of
-            // sweeping an already stale trajectory. A `trust` classname opts
-            // projectiles whose Think never alters the trajectory out of this.
-            if (!linearSweep || (thinkDue && !flags->trustThink)) {
+            // sweeping an already stale trajectory. Trust comes from the
+            // per-entity trajectory-static marker first, then from the
+            // classname `trust` flag for unmarked entities.
+            if (!linearSweep || (thinkDue && !thinkTrusted)) {
                 if (tracked->second.suppressed) {
                     projectile->v.solid = tracked->second.initialSolid;
                     tracked->second.suppressed = false;
@@ -161,10 +174,12 @@ void CProjectileGate::Update()
                 }
                 continue;
             }
-            if (thinkDue && flags->trustThink) {
-                // A due Think on a trusted projectile: sweep proceeds, count
-                // how often the trust decision pays off.
-                ++trustThinkCount;
+            if (thinkDue) {
+                if (entityTrust == 1) {
+                    ++trustEntityCount;
+                } else {
+                    ++trustThinkCount;
+                }
             }
 
             // A multi-frame corridor is only safe while no Think can fire
@@ -173,7 +188,7 @@ void CProjectileGate::Update()
             // projectiles excepted).
             const float corridorFrames = static_cast<float>(GetLookaheadFrames());
             const bool corridorThinkSafe =
-                flags->trustThink ||
+                thinkTrusted ||
                 projectile->v.nextthink <= 0.0f ||
                 projectile->v.nextthink > gpGlobals->time + gpGlobals->frametime * corridorFrames;
             const float queryFrames = corridorFrames > 1.0f && corridorThinkSafe ? corridorFrames : 1.0f;
@@ -219,15 +234,17 @@ void CProjectileGate::Update()
         counters.fallbackThink = fallbackThinkCount;
         counters.fallbackMovetype = fallbackMovetypeCount;
         counters.trustThink = trustThinkCount;
+        counters.trustEntity = trustEntityCount;
         counters.ownerFiltered = m_collisionWorld.GetOwnerFilteredCount();
         counters.rayQueries = m_collisionWorld.GetRayQueryCount();
         counters.boxQueries = m_collisionWorld.GetBoxQueryCount();
         counters.lookahead = lookaheadSkippedCount;
 
-        DebugLog(2, "Projectile frame: scanned=%d managed=%d culled=%d collision=%d fallback=%d (think=%d move=%d trust=%d ownerFilter=%d) lookahead=%d.",
+        DebugLog(2, "Projectile frame: scanned=%d managed=%d culled=%d collision=%d fallback=%d (think=%d move=%d trust=%d/%d ownerFilter=%d) lookahead=%d.",
                  projectileCount, managedCount, culledCount, collisionCandidateCount,
                  engineFallbackCount, fallbackThinkCount, fallbackMovetypeCount,
-                 trustThinkCount, counters.ownerFiltered, lookaheadSkippedCount);
+                 trustThinkCount, trustEntityCount, counters.ownerFiltered,
+                 lookaheadSkippedCount);
     }
 
     counters.colliders = m_collisionWorld.GetColliderCount();

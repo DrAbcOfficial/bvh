@@ -15,7 +15,9 @@ struct CFrameCounters {
     int fallbackThink = 0;
     int fallbackMovetype = 0;
     // Trusted-projectile frames where a due Think was swept instead of
-    // falling back.
+    // falling back: via the per-entity trajectory-static marker and via the
+    // classname `trust` flag respectively.
+    int trustEntity = 0;
     int trustThink = 0;
     int lookahead = 0;
     int sweeps = 0;
@@ -46,6 +48,7 @@ private:
     std::uint64_t m_fallbackTotal = 0;
     std::uint64_t m_fallbackThinkTotal = 0;
     std::uint64_t m_fallbackMovetypeTotal = 0;
+    std::uint64_t m_trustEntityTotal = 0;
     std::uint64_t m_trustThinkTotal = 0;
     std::uint64_t m_ownerFilteredTotal = 0;
     std::uint64_t m_lookaheadTotal = 0;

@@ -45,8 +45,28 @@ A line may carry flags after the classname:
 bdsc_bullet_proj trust
 ```
 
-`trust` keeps BVH culling across the projectile's `Think` callbacks. Enable
-it only for projectiles whose `Think` never changes velocity or trajectory.
+`trust` keeps BVH culling across the projectile's `Think` callbacks for
+unmarked entities. Enable it only for projectiles whose `Think` never
+changes velocity or trajectory.
+
+### Per-entity trajectory marker
+
+BDSC projectiles carry their own trust signal so the classname flag stays
+off for them. At spawn, `bdsc`/`bdsccpp` stamp `pev.iuser2` on every
+`bdsc_bullet_proj`:
+
+- `1` — trajectory-static: no `Think` callback rewrites velocity or
+  trajectory; BVH sweeps even when `Think` is due.
+- `2` — dynamic: `Think` may retarget the projectile (homing, curving);
+  BVH always restores engine collision for those frames.
+- `0` — unmarked: a third-party classname without a marker writer keeps
+  the legacy `trust`-flag behavior.
+
+The marker overrides the classname flag in both directions, so do not add
+`trust` to `bdsc_bullet_proj` anymore; it would re-trust projectiles the
+marker excluded. Other entity fields claimed by the BDSC stack:
+`iuser4` (damage type), `weapons` (bullet type), `maxspeed` (lifetime),
+`speed` (velocity magnitude), `spawnflags` (`8910422` spawn marker).
 
 ## Behavior
 

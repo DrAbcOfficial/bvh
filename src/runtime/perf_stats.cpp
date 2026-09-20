@@ -16,6 +16,7 @@ void CPerfStats::AddFrame(const CFrameCounters& counters)
     m_fallbackTotal += static_cast<std::uint64_t>(std::max(0, counters.fallback));
     m_fallbackThinkTotal += static_cast<std::uint64_t>(std::max(0, counters.fallbackThink));
     m_fallbackMovetypeTotal += static_cast<std::uint64_t>(std::max(0, counters.fallbackMovetype));
+    m_trustEntityTotal += static_cast<std::uint64_t>(std::max(0, counters.trustEntity));
     m_trustThinkTotal += static_cast<std::uint64_t>(std::max(0, counters.trustThink));
     m_ownerFilteredTotal += static_cast<std::uint64_t>(std::max(0, counters.ownerFiltered));
     m_lookaheadTotal += static_cast<std::uint64_t>(std::max(0, counters.lookahead));
@@ -39,6 +40,7 @@ void CPerfStats::Reset()
     m_fallbackTotal = 0;
     m_fallbackThinkTotal = 0;
     m_fallbackMovetypeTotal = 0;
+    m_trustEntityTotal = 0;
     m_trustThinkTotal = 0;
     m_ownerFilteredTotal = 0;
     m_lookaheadTotal = 0;
@@ -60,6 +62,7 @@ void CPerfStats::Print() const
     double fallback = 0.0;
     double fallbackThink = 0.0;
     double fallbackMovetype = 0.0;
+    double trustEntity = 0.0;
     double trustThink = 0.0;
     double ownerFiltered = 0.0;
     double lookahead = 0.0;
@@ -75,6 +78,7 @@ void CPerfStats::Print() const
         fallback += frame.fallback;
         fallbackThink += frame.fallbackThink;
         fallbackMovetype += frame.fallbackMovetype;
+        trustEntity += frame.trustEntity;
         trustThink += frame.trustThink;
         ownerFiltered += frame.ownerFiltered;
         lookahead += frame.lookahead;
@@ -89,6 +93,7 @@ void CPerfStats::Print() const
     fallback /= windowFrames;
     fallbackThink /= windowFrames;
     fallbackMovetype /= windowFrames;
+    trustEntity /= windowFrames;
     trustThink /= windowFrames;
     ownerFiltered /= windowFrames;
     lookahead /= windowFrames;
@@ -99,20 +104,21 @@ void CPerfStats::Print() const
 
     LOG_CONSOLE(PLID, "[BVH] status: frames=%llu window=%d",
                 static_cast<unsigned long long>(m_frames), m_windowFill);
-    LOG_CONSOLE(PLID, "[BVH] frame avg: projectiles=%.2f culled=%.2f collision=%.2f fallback=%.2f (think=%.2f move=%.2f trust=%.2f ownerFilter=%.2f) lookahead=%.2f sweeps=%.2f (ray=%.2f box=%.2f) update=%.3fms",
+    LOG_CONSOLE(PLID, "[BVH] frame avg: projectiles=%.2f culled=%.2f collision=%.2f fallback=%.2f (think=%.2f move=%.2f trust=%.2f/%.2f ownerFilter=%.2f) lookahead=%.2f sweeps=%.2f (ray=%.2f box=%.2f) update=%.3fms",
                 projectiles, culled, collision, fallback, fallbackThink,
-                fallbackMovetype, trustThink, ownerFiltered, lookahead,
-                sweeps, rayQueries, boxQueries, update);
+                fallbackMovetype, trustEntity, trustThink, ownerFiltered,
+                lookahead, sweeps, rayQueries, boxQueries, update);
     LOG_CONSOLE(PLID, "[BVH] update: avg=%.3fms peak=%.3fms",
                 m_frames > 0 ? m_updateTotalMilliseconds / static_cast<double>(m_frames) : 0.0,
                 m_updatePeakMilliseconds);
-    LOG_CONSOLE(PLID, "[BVH] totals: projectiles=%llu culled=%llu collision=%llu fallback=%llu (think=%llu move=%llu trust=%llu ownerFilter=%llu) lookahead=%llu sweeps=%llu (ray=%llu box=%llu)",
+    LOG_CONSOLE(PLID, "[BVH] totals: projectiles=%llu culled=%llu collision=%llu fallback=%llu (think=%llu move=%llu trust=%llu/%llu ownerFilter=%llu) lookahead=%llu sweeps=%llu (ray=%llu box=%llu)",
                 static_cast<unsigned long long>(m_projectileTotal),
                 static_cast<unsigned long long>(m_culledTotal),
                 static_cast<unsigned long long>(m_collisionTotal),
                 static_cast<unsigned long long>(m_fallbackTotal),
                 static_cast<unsigned long long>(m_fallbackThinkTotal),
                 static_cast<unsigned long long>(m_fallbackMovetypeTotal),
+                static_cast<unsigned long long>(m_trustEntityTotal),
                 static_cast<unsigned long long>(m_trustThinkTotal),
                 static_cast<unsigned long long>(m_ownerFilteredTotal),
                 static_cast<unsigned long long>(m_lookaheadTotal),
