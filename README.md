@@ -35,7 +35,9 @@ bdsc_bullet_proj
 
 Use one classname per line. Blank lines and text after `#` or `//` are ignored.
 An empty file disables management. An existing unreadable file disables
-management without overwriting it. Reload the plugin after changing the file.
+management without overwriting it. Run `bvh_reload` to apply edits without
+restarting; if the file cannot be read at that moment, the previous list
+stays in effect.
 
 ## Behavior
 
@@ -46,10 +48,16 @@ management without overwriting it. Reload the plugin after changing the file.
   entity's initial `solid` value.
 - Bullet only decides whether GoldSrc collision runs; GoldSrc still owns
   movement, `Touch`, damage, decals, callbacks, and removal.
+- The Bullet world mirrors the map BSP for prediction: sky and submerged
+  solid faces block, while water boundary faces stay passable like the
+  engine treats them.
 - Missing world data or an invalid query fails open and preserves engine
   collision.
 
 ## Debugging
 
-Set `bvh_debug` to `0`, `1`, or `2` for disabled, lifecycle/event, or per-frame
-output. Run `bvh_debug_status` to print the effective value.
+Set `bvh_enabled` to `0` to bypass the plugin without unloading it.
+Set `bvh_debug` to `0`, `1`, or `2` for disabled, lifecycle/event, or
+per-frame output. Run `bvh_debug_status` to print the effective values.
+Run `bvh_status` for aggregated per-frame statistics: culled ratio,
+predicted hits, fallbacks, sweeps, and update time.

@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <tuple>
 #include <unordered_map>
 
 #include <LinearMath/btVector3.h>
@@ -67,6 +69,7 @@ private:
     void UpdateCollider(int entityIndex, edict_t* entity);
     void RemoveCollider(int entityIndex);
 
+    [[nodiscard]] btBoxShape* ResolveProjectileShape(const btVector3& halfExtents) const;
     [[nodiscard]] bool IsTargetEntity(int entityIndex, const edict_t* entity) const;
 
     std::unique_ptr<btDefaultCollisionConfiguration> m_collisionConfiguration;
@@ -84,6 +87,7 @@ private:
     std::unordered_map<int, CBoxCollider> m_colliders;
     std::uint32_t m_syncGeneration = 0;
     mutable int m_sweepCount = 0;
+    mutable std::map<std::tuple<int, int, int>, std::unique_ptr<btBoxShape>> m_shapeCache;
     int m_worldTriangleCount = 0;
     bool m_active = false;
     bool m_worldReady = false;

@@ -25,6 +25,7 @@ namespace {
 constexpr int kWorldBoundsUserIndex = -2;
 constexpr float kMinimumHalfExtent = 0.5f;
 constexpr float kExtentTolerance = 0.01f;
+constexpr std::size_t kMaximumCachedSweepShapes = 256;
 
 bool IsUsableExtent(const btVector3& halfExtents)
 {
@@ -36,6 +37,14 @@ bool IsUsableExtent(const btVector3& halfExtents)
 bool NearlyEqual(const btVector3& left, const btVector3& right)
 {
     return (left - right).length2() <= kExtentTolerance * kExtentTolerance;
+}
+
+// Sweep boxes quantize to 0.5-unit cells, rounded up so the predicted box is
+// never smaller than the entity bounds. Cache hits avoid rebuilding the 15
+// vertex arrays of btBoxShape for every projectile on every frame.
+int QuantizeExtent(btScalar extent)
+{
+    return std::max(1, static_cast<int>(std::ceil(extent * btScalar(2.0) - btScalar(0.001))));
 }
 
 btTransform MakeTransform(const btVector3& origin)
@@ -105,10 +114,12 @@ public:
 
 bool IsIgnoredWorldSurface(const msurface_t& surface)
 {
-    constexpr int kSurfaceDrawSky = 0x04;
+    // Only water boundary faces stay out of the collision mesh: GoldSrc
+    // treats them as passable. Sky and underwater solid faces were once
+    // skipped too, which let projectiles fly through sky and submerged
+    // walls while culled; they must stay in the mesh.
     constexpr int kSurfaceDrawTurb = 0x10;
-    constexpr int kSurfaceUnderwater = 0x80;
-    return (surface.flags & (kSurfaceDrawSky | kSurfaceDrawTurb | kSurfaceUnderwater)) != 0;
+    return (surface.flags & kSurfaceDrawTurb) != 0;
 }
 
 void CollectVisibleWorldSurfaces(const model_t& worldModel, const mnode_t* node,
@@ -244,15 +255,40 @@ bool CCollisionWorld::WouldProjectileHit(const edict_t* projectile, float frameT
 
     const btTransform from = MakeTransform(center);
     const btTransform to = MakeTransform(center + velocity * frameTime);
-    btBoxShape projectileShape(halfExtents);
+    btBoxShape* projectileShape = ResolveProjectileShape(halfExtents);
     CProjectileSweepCallback callback(from.getOrigin(), to.getOrigin());
     callback.m_collisionFilterGroup = btBroadphaseProxy::DefaultFilter;
     callback.m_collisionFilterMask = btBroadphaseProxy::DefaultFilter |
                                      btBroadphaseProxy::StaticFilter;
 
     ++m_sweepCount;
-    m_collisionWorld->convexSweepTest(&projectileShape, from, to, callback);
+    m_collisionWorld->convexSweepTest(projectileShape, from, to, callback);
     return callback.hasHit();
+}
+
+btBoxShape* CCollisionWorld::ResolveProjectileShape(const btVector3& halfExtents) const
+{
+    const auto key = std::make_tuple(QuantizeExtent(halfExtents.x()),
+                                     QuantizeExtent(halfExtents.y()),
+                                     QuantizeExtent(halfExtents.z()));
+    const auto found = m_shapeCache.find(key);
+    if (found != m_shapeCache.end()) {
+        return found->second.get();
+    }
+
+    if (m_shapeCache.size() >= kMaximumCachedSweepShapes) {
+        // Distinct projectile sizes are few; a pathological config restarts
+        // the cache instead of growing without bound.
+        m_shapeCache.clear();
+    }
+
+    btVector3 quantizedHalfExtents(static_cast<btScalar>(std::get<0>(key)) * btScalar(0.5),
+                                   static_cast<btScalar>(std::get<1>(key)) * btScalar(0.5),
+                                   static_cast<btScalar>(std::get<2>(key)) * btScalar(0.5));
+    auto shape = std::make_unique<btBoxShape>(quantizedHalfExtents);
+    btBoxShape* shapePtr = shape.get();
+    m_shapeCache.emplace(key, std::move(shape));
+    return shapePtr;
 }
 
 void CCollisionWorld::Initialize()
@@ -305,6 +341,7 @@ void CCollisionWorld::ClearWorldGeometry()
     m_worldMeshShape.reset();
     m_worldTriangleMesh.reset();
     m_worldTriangleCount = 0;
+    m_shapeCache.clear();
 }
 
 bool CCollisionWorld::BuildWorldGeometry(edict_t* worldEntity)

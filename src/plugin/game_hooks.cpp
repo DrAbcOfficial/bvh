@@ -23,7 +23,7 @@ bool IsProjectile(const edict_t* entity)
 
 void OnGameInit()
 {
-    Bvh::RegisterDebugCvar();
+    Bvh::RegisterRuntimeCvars();
     if (!g_projectileClassConfig.Load()) {
         LOG_ERROR(PLID, "Could not load BVH projectile class config %s; projectile management is disabled.",
                   Bvh::CProjectileClassConfig::GetPath());
@@ -42,6 +42,16 @@ void OnGameInit()
         });
         g_engfuncs.pfnAddServerCommand(const_cast<char*>("bvh_status"), []() {
             g_projectileGate.PrintStats();
+        });
+        g_engfuncs.pfnAddServerCommand(const_cast<char*>("bvh_reload"), []() {
+            if (g_projectileClassConfig.Load()) {
+                LOG_CONSOLE(PLID, "[BVH] Reloaded %zu projectile classnames from %s.",
+                            g_projectileClassConfig.GetClassnameCount(),
+                            Bvh::CProjectileClassConfig::GetPath());
+            } else {
+                LOG_ERROR(PLID, "Could not reload BVH projectile class config %s; keeping the previous list.",
+                          Bvh::CProjectileClassConfig::GetPath());
+            }
         });
     }
     SET_META_RESULT(MRES_HANDLED);

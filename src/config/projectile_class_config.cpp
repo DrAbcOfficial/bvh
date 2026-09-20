@@ -75,7 +75,6 @@ namespace Bvh {
 
 bool CProjectileClassConfig::Load()
 {
-    m_classnames.clear();
     m_defaultCreated = false;
 
     std::filesystem::path configPath;
@@ -87,6 +86,8 @@ bool CProjectileClassConfig::Load()
     std::string text;
     if (!file.is_open()) {
         if (!CreateDefaultConfig(configPath)) {
+            // Startup: the list stays empty and management is disabled.
+            // Reload: the previously loaded classnames stay in effect.
             return false;
         }
 
@@ -102,6 +103,7 @@ bool CProjectileClassConfig::Load()
         text.erase(0, 3);
     }
 
+    std::set<std::string, std::less<>> classnames;
     std::size_t lineStart = 0;
     while (lineStart < text.size()) {
         const std::size_t lineEnd = text.find_first_of("\r\n", lineStart);
@@ -119,7 +121,7 @@ bool CProjectileClassConfig::Load()
 
         line = Trim(line);
         if (!line.empty()) {
-            m_classnames.emplace(line.data(), line.size());
+            classnames.emplace(line.data(), line.size());
         }
 
         if (lineEnd == std::string::npos) {
@@ -131,6 +133,8 @@ bool CProjectileClassConfig::Load()
         }
     }
 
+    // Swap only after a full parse so a reload never loses the current list.
+    m_classnames = std::move(classnames);
     return true;
 }
 

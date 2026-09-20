@@ -37,6 +37,7 @@ private:
     void ForgetExpiredProjectiles();
     void ForgetTrackedProjectile(int entityIndex, edict_t* projectile, const char* reason);
     void RestoreSuppressedProjectiles();
+    void FlushTransitionLogs();
 
     CCollisionWorld& m_collisionWorld;
     const CProjectileClassConfig& m_projectileClassConfig;
@@ -45,6 +46,12 @@ private:
     CPerfStats m_perfStats;
     bool m_hasWorldReadyState = false;
     bool m_lastWorldReady = false;
+    bool m_hasEnabledState = false;
+    bool m_lastEnabled = false;
+    int m_throttledCulled = 0;
+    int m_throttledRestoredHit = 0;
+    int m_throttledRestoredThink = 0;
+    double m_nextTransitionFlush = 0.0;
 };
 
 }  // namespace Bvh

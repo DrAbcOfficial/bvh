@@ -14,19 +14,33 @@ char g_debugDefault[] = "0";
 cvar_t g_debugCvar = {g_debugName, g_debugDefault, FCVAR_SERVER, 0.0f, nullptr};
 bool g_debugRegistered = false;
 
+char g_enabledName[] = "bvh_enabled";
+char g_enabledDefault[] = "1";
+cvar_t g_enabledCvar = {g_enabledName, g_enabledDefault, FCVAR_SERVER, 1.0f, nullptr};
+bool g_enabledRegistered = false;
+
 }  // namespace
 
 namespace Bvh {
 
-void RegisterDebugCvar()
+void RegisterRuntimeCvars()
 {
-    if (g_debugRegistered) {
-        return;
+    if (!g_debugRegistered) {
+        CVAR_REGISTER(&g_debugCvar);
+        g_debugRegistered = true;
     }
 
-    CVAR_REGISTER(&g_debugCvar);
-    g_debugRegistered = true;
-    LOG_CONSOLE(PLID, "[BVH] Registered bvh_debug. Use bvh_debug_status to inspect its effective value.");
+    if (!g_enabledRegistered) {
+        CVAR_REGISTER(&g_enabledCvar);
+        g_enabledRegistered = true;
+    }
+
+    LOG_CONSOLE(PLID, "[BVH] Registered cvars: bvh_debug (0/1/2), bvh_enabled. Commands: bvh_status, bvh_reload, bvh_debug_status.");
+}
+
+bool IsPluginEnabled()
+{
+    return !g_enabledRegistered || g_enabledCvar.value > 0.5f;
 }
 
 int GetDebugLevel()
@@ -43,9 +57,11 @@ int GetDebugLevel()
 
 void PrintDebugStatus()
 {
-    const float rawValue = g_debugRegistered ? g_debugCvar.value : 0.0f;
-    LOG_CONSOLE(PLID, "[BVH] bvh_debug registered=%d raw=%.3f effective=%d.",
-                g_debugRegistered ? 1 : 0, rawValue, GetDebugLevel());
+    const float rawDebugValue = g_debugRegistered ? g_debugCvar.value : 0.0f;
+    const float rawEnabledValue = g_enabledRegistered ? g_enabledCvar.value : 0.0f;
+    LOG_CONSOLE(PLID, "[BVH] bvh_debug registered=%d raw=%.3f effective=%d; bvh_enabled raw=%.3f effective=%d.",
+                g_debugRegistered ? 1 : 0, rawDebugValue, GetDebugLevel(),
+                rawEnabledValue, IsPluginEnabled() ? 1 : 0);
 }
 
 void DebugLog(int minimumLevel, const char* format, ...)

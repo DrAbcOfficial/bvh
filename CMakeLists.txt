@@ -81,7 +81,9 @@ target_compile_definitions(bvh PRIVATE
 if(MSVC)
     target_compile_options(bvh PRIVATE /W4 /permissive-)
 else()
-    target_compile_options(bvh PRIVATE -Wall -Wextra -Wpedantic -fPIC)
+    # -Wno-deprecated-copy: the HLSDK Vector copy constructor trips the
+    # warning from SDK headers; our sources do not rely on it.
+    target_compile_options(bvh PRIVATE -Wall -Wextra -Wpedantic -Wno-deprecated-copy -fPIC)
     target_link_libraries(bvh PRIVATE ${CMAKE_DL_LIBS} m)
 endif()
 

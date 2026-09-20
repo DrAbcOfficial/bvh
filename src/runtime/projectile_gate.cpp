@@ -32,7 +32,15 @@ void CProjectileGate::Update()
         m_lastWorldReady = worldReady;
     }
 
-    if (!worldReady) {
+    const bool pluginEnabled = IsPluginEnabled();
+    if (!m_hasEnabledState || m_lastEnabled != pluginEnabled) {
+        DebugLog(1, "Projectile management %s (bvh_enabled).",
+                 pluginEnabled ? "enabled" : "disabled");
+        m_hasEnabledState = true;
+        m_lastEnabled = pluginEnabled;
+    }
+
+    if (!worldReady || !pluginEnabled) {
         RestoreSuppressedProjectiles();
     } else {
         ForgetExpiredProjectiles();
@@ -90,9 +98,7 @@ void CProjectileGate::Update()
                 if (tracked->second.suppressed) {
                     projectile->v.solid = tracked->second.initialSolid;
                     tracked->second.suppressed = false;
-                    DebugLog(1, "Projectile %d restored initial solidity %d (%s).", entityIndex,
-                             projectile->v.solid,
-                             CanUseLinearSweep(projectile) ? "due Think" : "nonlinear movement");
+                    ++m_throttledRestoredThink;
                 }
                 ++engineFallbackCount;
                 continue;
@@ -102,8 +108,7 @@ void CProjectileGate::Update()
                 if (tracked->second.suppressed) {
                     projectile->v.solid = tracked->second.initialSolid;
                     tracked->second.suppressed = false;
-                    DebugLog(1, "Projectile %d predicted collision; restored initial solidity %d.",
-                             entityIndex, projectile->v.solid);
+                    ++m_throttledRestoredHit;
                 }
                 ++collisionCandidateCount;
             } else {
@@ -112,7 +117,7 @@ void CProjectileGate::Update()
                 tracked->second.suppressed = true;
                 ++culledCount;
                 if (!wasCulled) {
-                    DebugLog(1, "Projectile %d BVH-culled; set SOLID_NOT.", entityIndex);
+                    ++m_throttledCulled;
                 }
             }
         }
@@ -133,11 +138,31 @@ void CProjectileGate::Update()
     counters.updateMilliseconds = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - start).count();
     m_perfStats.AddFrame(counters);
+    FlushTransitionLogs();
 }
 
 void CProjectileGate::Reset()
 {
     RestoreSuppressedProjectiles();
+}
+
+void CProjectileGate::FlushTransitionLogs()
+{
+    if (m_throttledCulled == 0 && m_throttledRestoredHit == 0 && m_throttledRestoredThink == 0) {
+        return;
+    }
+
+    const double now = gpGlobals != nullptr ? static_cast<double>(gpGlobals->time) : 0.0;
+    if (now < m_nextTransitionFlush) {
+        return;
+    }
+
+    DebugLog(1, "Recent transitions: %d culled, %d restored on predicted hit, %d restored on Think.",
+             m_throttledCulled, m_throttledRestoredHit, m_throttledRestoredThink);
+    m_throttledCulled = 0;
+    m_throttledRestoredHit = 0;
+    m_throttledRestoredThink = 0;
+    m_nextTransitionFlush = now + 0.5;
 }
 
 void CProjectileGate::PrintStats() const
