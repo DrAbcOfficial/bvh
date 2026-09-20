@@ -46,6 +46,7 @@ add_subdirectory(metamod/thirdparty/bullet3_fork EXCLUDE_FROM_ALL)
 
 add_library(bvh SHARED
     src/config/projectile_class_config.cpp
+    src/engine/bdsc_api.cpp
     src/engine/model_provider.cpp
     src/plugin/game_hooks.cpp
     src/plugin/h_export.cpp

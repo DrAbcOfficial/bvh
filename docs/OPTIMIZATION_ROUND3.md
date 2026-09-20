@@ -146,19 +146,28 @@ buckshot 同膛不互消的机制）。即：引擎对弹体的唯一碰撞语�
     武器的 `aryProjThinkCallBack/aryProjLatencyThinkCallBack` 均为空 → 轨迹静态；
   - bdsccpp 路径（`NewFireBullets`）：弹体无任何 AS 回调，恒为轨迹静态，
     可直接在 `SetupProjBullet` 末尾置位。
-- **方案**（in-band，无 ABI）：
-  1. 约定 `pev.iuser2 = 1` 表示"Think 不会改变轨迹/速度"（`iuser2` 在弹体生命周期内
-     无任何使用者——bdsc 全仓 grep 证实；`iuser3`/`fuser1` 为备选。注意 `CRCLRocket.as:35`
-     等对**其它类名**用了 `iuser2=2`，语义不冲突，但文档需写明按类名隔离）。
-  2. bdsc：`CProjBullet.Spawn` 装配 Think 回调后按上述判定置位/清零；
-     bdsccpp：`SetupProjBullet` 对 C++ 路径弹体置位（AS 路径会在 Spawn 尾部覆写，两路不冲突）。
-  3. bvh：think 门槛（gate :118,:135）与 lookahead 的 `thinkAllows`（:118）改为
-     `thinkDue && !flags->trustThink && entity->v.iuser2 == 0`；
-     实体位优先级高于 classname 配置（位=1 即信任，位=0 则仍受配置的 trust 影响）。
+- **方案**（协议 v2：承载于 bdsccpp 的 `CGameObject`，经跨插件 API 读取。
+  评审原稿的 `pev.iuser2` in-band 方案在实施前被否决——`iuser` 系列在 Sven Co-op
+  有引擎侧语义（如 `CRCLRocket.as:35` 的 `iuser2=2` 影响索敌），不可占用）：
+  1. **载体**：bdsccpp 为每个实体维护按索引寻址的 `CGameObject`（`m_bIgnoreTraceLine`
+     同款通道），新增属性 `int m_iTrajectoryStatic`（0=未标记 / 1=静态 / 2=动态），
+     经 `REGPROPERTY` 同步暴露给 AngelScript；实体释放时对象销毁，edict 复用无残留。
+  2. **bdsc API**：AngelScript 侧经现成的 `g_EntityFuncs.GetGameObject(self)
+     .m_iTrajectoryStatic = 1|2` 写入；`CProjBullet.Spawn` 在 Think 回调装配完成后，
+     按 `pfnThinkCallBack`/武器 `aryProjThinkCallBack` 是否存在覆写。
+  3. **bdsccpp 预写**：`SetupProjBullet` 对弹体预写 `1`（C++ FireBullets 路径恒静态；
+     AS 路径随后覆写为准）。
+  4. **bvh API**：bdsccpp 导出 `extern "C" int bdsc_bvh_get_trajectory_marker(int entindex)`
+     （Windows `dllexport` / Linux 默认可见性，metamod 以 `RTLD_GLOBAL` 装载插件）；
+     bvh 以 `GetModuleHandleA("bdsc.dll")`+`GetProcAddress` / `dlsym(RTLD_DEFAULT)`
+     动态解析并缓存，`ServerActivate` 时失效重解析。bdsc 缺位或旧版时查询返回
+     未标记——bvh 自然回退到 classname 配置，零构建期耦合。
+- **语义**：`1` 信任、`2` 强制回退、`0`/未标记沿用 classname `trust` 配置；实体标记
+  双向覆盖配置，杜绝 `trust` 误伤制导弹。
 - **收益**：interval-Think 但不改轨迹的弹（升级件玩法下占比可观）剔除率 0 → 全程剔除；
   制导弹安全地保持 fallback。
 - **风险**：中（错信任 = 该弹该帧免碰撞）。灰度依赖 #8 的 trust 生效计数 + §9 对照。
-- **工作量**：M（三仓各一小块，bvh 侧约 3 行判定 + 文档）。
+- **工作量**：M（三仓各一小块：bdsccpp 字段+导出、bdsc 一段写入、bvh 动态解析）。
 
 ---
 
@@ -246,9 +255,8 @@ StartFrame 之后移动，快速列车/门可在一帧内切入弹道而预测�
 ### 6.5 澄清与文档（#13）
 
 - `spawnflags = 8910422`（五个生成点一致写入）在 bdsc/bdsccpp 仓库内**无读者**——若为
-  跨插件标记请在外部仓库注明；否则可与 `iuser2` 一样写入 bvh 的 README"弹体字段占用表"
-  （iuser4=伤害类型、weapons=弹种、button=tracer、impulse=绘制模式、bInDuck=hull 形状、
-  maxspeed=寿命、speed=速率、spawnflags=标记、iuser2=轨迹静态位【新】）。
+  跨插件标记请在外部仓库注明；轨迹标记最终经 `CGameObject` 携带（见 4.3 协议 v2），
+  不占用任何 entvars 槽位。弹体字段占用表见 bvh README。
 - 泛用 FLYMISSILE 类名走 `MOVE_MISSILE`（引擎对其 hull/monster 裁剪语义与 MOVE_NORMAL
   不同），bvh 预测未模拟该差异；bdsc 弹体恒为 FLY 不受影响，文档注明即可。
 
@@ -303,10 +311,11 @@ StartFrame 之后移动，快速列车/门可在一帧内切入弹道而预测�
 | 前置 | `7149253` | 本评审文档（实体生命周期三方对照 + ReHLDS 语义校准） |
 | 1 | `e979609` | 4.2 thinkDue 窗口对齐 SV_RunThink；5.1 sweep 排除 owner；5.2/5.3 lookahead 单查询化（hitFraction 判定）+ 窗口内 Think 预判；5.5 fallback 原因/trust/ownerFilter 分解统计；6.1 ForgetExpired 降频至每 16 帧 |
 | 2 | `6ac313a` | 4.1 零 hull 弹体走 rayTest（点实体语义对齐 + 窄相降级为射线-三角形）；6.2 位移向量纳入 basevelocity；bvh_status 增列 ray/box 查询计数 |
-| 3 | bvh `3f9937f`、bdsc `fa301cf`、bdsccpp `50a29b6` | 4.3 pev.iuser2 轨迹静态位三方协议（1=静态信任 / 2=动态强制回退 / 0=未标记沿用配置）；README 增补字段占用表与 trust 使用建议 |
+| 3 | bvh `3f9937f`、bdsc `fa301cf`、bdsccpp `50a29b6` | 4.3 轨迹标记三方协议 v1（`pev.iuser2` in-band：1=静态信任 / 2=动态强制回退 / 0=未标记沿用配置）；README 增补字段占用表与 trust 使用建议 |
+| 3r（协议修订） | 三仓各一 commit，见各自仓库 | 4.3 协议 v2：`iuser` 系列在 SC 有引擎侧含义，标记改由 bdsccpp `CGameObject` 携带（`m_iTrajectoryStatic`），bdsc 经 `g_EntityFuncs.GetGameObject()` 写入，bdsccpp 导出 `bdsc_bvh_get_trajectory_marker` 供 bvh 运行时动态解析（bdsc 缺位自然回退 classname 配置） |
 
-**协议要点（实施时的定稿语义）**：`iuser2=1` 信任、`=2` 强制回退、`=0`（未标记的第三方类名）
-沿用 classname `trust` 配置——实体位可双向覆盖配置，杜绝 `trust` 误伤制导弹。
+**协议要点（v2 定稿语义）**：`CGameObject.m_iTrajectoryStatic` `1` 信任、`2` 强制回退、
+`0`/未标记沿用 classname `trust` 配置——实体标记可双向覆盖配置，杜绝 `trust` 误伤制导弹。
 
 **遗留（批次 4，按需，需实机验证）**：5.4 `pfnNumberOfEntities` 高水位扫描上界（先验证返回
 语义）、6.3 mesh collider 运动保守化、6.4 SOLID_BBOX 候选纳入（cvar）。

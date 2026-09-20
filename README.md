@@ -51,9 +51,14 @@ changes velocity or trajectory.
 
 ### Per-entity trajectory marker
 
-BDSC projectiles carry their own trust signal so the classname flag stays
-off for them. At spawn, `bdsc`/`bdsccpp` stamp `pev.iuser2` on every
-`bdsc_bullet_proj`:
+Sven Co-op gives the `iuser` entvars slots engine-side meanings, so BDSC
+projectiles carry their trust signal out-of-band instead: `bdsccpp`
+stamps a trajectory marker on each `bdsc_bullet_proj`'s CGameObject at
+initialization, and `bdsc` re-evaluates it from AngelScript once the
+actual `Think` callbacks are known. `bvh` resolves the marker through
+bdsc's exported `bdsc_bvh_get_trajectory_marker(int entindex)` query at
+runtime (no build-time coupling; when bdsc is absent or older, entities
+count as unmarked):
 
 - `1` — trajectory-static: no `Think` callback rewrites velocity or
   trajectory; BVH sweeps even when `Think` is due.

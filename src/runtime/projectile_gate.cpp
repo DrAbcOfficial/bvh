@@ -9,6 +9,7 @@
 #include <meta_api.h>
 
 #include "config/projectile_class_config.h"
+#include "engine/bdsc_api.h"
 #include "runtime/debug_log.h"
 
 namespace {
@@ -16,13 +17,6 @@ namespace {
 // A projectile leaving its predicted linear path by more than this much ends
 // the multi-frame lookahead window.
 constexpr float kLookaheadVelocityEpsilon = 0.1f;
-
-// Per-entity trajectory-static protocol (docs/OPTIMIZATION_ROUND3.md 4.3):
-// bdsc/bdsccpp stamp pev.iuser2 at spawn. 1 = Think never rewrites velocity
-// or trajectory (trusted), 2 = Think may rewrite it (never trust), 0 =
-// unmarked third-party entities fall back to the classname `trust` flag.
-constexpr int kTrajectoryStaticMarker = 1;
-constexpr int kTrajectoryDynamicMarker = 2;
 
 }  // namespace
 
@@ -130,8 +124,13 @@ void CProjectileGate::Update()
             const bool thinkDue = projectile->v.nextthink > 0.0f &&
                                   projectile->v.nextthink <= gpGlobals->time + gpGlobals->frametime;
             const bool linearSweep = CanUseLinearSweep(projectile);
-            const int entityTrust = projectile->v.iuser2 == kTrajectoryStaticMarker ? 1 :
-                                    projectile->v.iuser2 == kTrajectoryDynamicMarker ? 0 : -1;
+            // bdsc carries the trajectory marker on its per-entity
+            // GameObject (iuser slots are engine-meaningful in Sven Co-op):
+            // 1 = static (trust), 2 = dynamic (never trust), 0 = unmarked,
+            // which defers to the classname `trust` flag.
+            const int marker = BdscApi::GetTrajectoryMarker(entityIndex);
+            const int entityTrust = marker == BdscApi::kStatic ? 1 :
+                                    marker == BdscApi::kDynamic ? 0 : -1;
             const bool thinkTrusted = entityTrust == 1 ||
                                       (entityTrust == -1 && flags->trustThink);
 

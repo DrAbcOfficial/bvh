@@ -5,6 +5,7 @@
 #include <meta_api.h>
 
 #include "config/projectile_class_config.h"
+#include "engine/bdsc_api.h"
 #include "physics/collision_world.h"
 #include "plugin/game_hooks.h"
 #include "runtime/debug_log.h"
@@ -60,6 +61,8 @@ void OnGameInit()
 void OnServerActivate(edict_t* entityList, int, int)
 {
     Bvh::DebugLog(1, "Activating world collision.");
+    // Re-resolve the bdsc API in case bdsc was reloaded since last map.
+    Bvh::BdscApi::InvalidateCache();
     if (entityList == nullptr || !g_collisionWorld.Activate(entityList)) {
         LOG_ERROR(PLID, "BVH collision world could not be built; projectile optimization is disabled.");
     } else {
