@@ -56,6 +56,8 @@ public:
     // Sweeps in the current frame whose broadphase walk encountered the
     // projectile's owner collider and skipped it (muzzle-frame false hits).
     [[nodiscard]] int GetOwnerFilteredCount() const;
+    [[nodiscard]] int GetRayQueryCount() const;
+    [[nodiscard]] int GetBoxQueryCount() const;
     [[nodiscard]] int GetWorldTriangleCount() const;
 
 private:
@@ -107,6 +109,8 @@ private:
     std::uint32_t m_syncGeneration = 0;
     mutable int m_sweepCount = 0;
     mutable int m_ownerFilteredCount = 0;
+    mutable int m_rayQueryCount = 0;
+    mutable int m_boxQueryCount = 0;
     mutable std::map<std::tuple<int, int, int>, std::unique_ptr<btBoxShape>> m_shapeCache;
     int m_worldTriangleCount = 0;
     bool m_active = false;

@@ -220,6 +220,8 @@ void CProjectileGate::Update()
         counters.fallbackMovetype = fallbackMovetypeCount;
         counters.trustThink = trustThinkCount;
         counters.ownerFiltered = m_collisionWorld.GetOwnerFilteredCount();
+        counters.rayQueries = m_collisionWorld.GetRayQueryCount();
+        counters.boxQueries = m_collisionWorld.GetBoxQueryCount();
         counters.lookahead = lookaheadSkippedCount;
 
         DebugLog(2, "Projectile frame: scanned=%d managed=%d culled=%d collision=%d fallback=%d (think=%d move=%d trust=%d ownerFilter=%d) lookahead=%d.",

@@ -19,6 +19,10 @@ struct CFrameCounters {
     int trustThink = 0;
     int lookahead = 0;
     int sweeps = 0;
+    // Query split: ray tests for zero-hull projectiles versus convex box
+    // sweeps for the rest.
+    int rayQueries = 0;
+    int boxQueries = 0;
     int ownerFiltered = 0;
     int colliders = 0;
     double updateMilliseconds = 0.0;
@@ -46,6 +50,8 @@ private:
     std::uint64_t m_ownerFilteredTotal = 0;
     std::uint64_t m_lookaheadTotal = 0;
     std::uint64_t m_sweepTotal = 0;
+    std::uint64_t m_rayQueryTotal = 0;
+    std::uint64_t m_boxQueryTotal = 0;
     double m_updateTotalMilliseconds = 0.0;
     double m_updatePeakMilliseconds = 0.0;
     CFrameCounters m_window[kWindowFrames] = {};

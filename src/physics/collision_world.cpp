@@ -24,6 +24,9 @@ namespace {
 
 constexpr int kWorldBoundsUserIndex = -2;
 constexpr float kMinimumHalfExtent = 0.5f;
+// Hulls below this are zero-size point entities (BDSC bullets set
+// mins = maxs = 0) and predict via a ray instead of a convex cast.
+constexpr float kPointHullHalfExtent = 0.001f;
 constexpr float kExtentTolerance = 0.01f;
 constexpr std::size_t kMaximumCachedSweepShapes = 256;
 
@@ -140,6 +143,56 @@ public:
             return false;
         }
         return userIndex != kWorldBoundsUserIndex;
+    }
+
+private:
+    int m_ownerIndex = -1;
+    int* m_ownerFilteredCounter = nullptr;
+};
+
+// Boolean ray callback for zero-hull projectiles: identical candidate rules
+// to the sweep callback, closest-fraction bookkeeping for the lookahead.
+class CProjectileRayCallback final : public btCollisionWorld::RayResultCallback {
+public:
+    CProjectileRayCallback(int ownerIndex, int* ownerFilteredCounter)
+        : m_ownerIndex(ownerIndex),
+          m_ownerFilteredCounter(ownerFilteredCounter)
+    {
+    }
+
+    bool needsCollision(btBroadphaseProxy* proxy) const override
+    {
+        // Boolean query: once any candidate hit, skip all remaining candidates.
+        if (hasHit()) {
+            return false;
+        }
+
+        if (!btCollisionWorld::RayResultCallback::needsCollision(proxy)) {
+            return false;
+        }
+
+        const auto* object = static_cast<const btCollisionObject*>(proxy->m_clientObject);
+        if (object == nullptr) {
+            return false;
+        }
+
+        const int userIndex = object->getUserIndex();
+        if (m_ownerIndex > 0 && userIndex == m_ownerIndex) {
+            if (m_ownerFilteredCounter != nullptr) {
+                ++*m_ownerFilteredCounter;
+            }
+            return false;
+        }
+        return userIndex != kWorldBoundsUserIndex;
+    }
+
+    btScalar addSingleResult(btCollisionWorld::LocalRayResult& rayResult,
+                             bool normalInWorldSpace) override
+    {
+        (void)normalInWorldSpace;
+        m_closestHitFraction = rayResult.m_hitFraction;
+        m_collisionObject = rayResult.m_collisionObject;
+        return rayResult.m_hitFraction;
     }
 
 private:
@@ -288,6 +341,8 @@ void CCollisionWorld::BeginFrame()
     ++m_syncGeneration;
     m_sweepCount = 0;
     m_ownerFilteredCount = 0;
+    m_rayQueryCount = 0;
+    m_boxQueryCount = 0;
 
     for (auto iterator = m_colliders.begin(); iterator != m_colliders.end();) {
         if (iterator->second.lastSyncGeneration != m_syncGeneration) {
@@ -343,6 +398,16 @@ int CCollisionWorld::GetOwnerFilteredCount() const
     return m_ownerFilteredCount;
 }
 
+int CCollisionWorld::GetRayQueryCount() const
+{
+    return m_rayQueryCount;
+}
+
+int CCollisionWorld::GetBoxQueryCount() const
+{
+    return m_boxQueryCount;
+}
+
 float CCollisionWorld::SweepProjectile(const edict_t* projectile, float frameTime) const
 {
     if (!IsReady() || projectile == nullptr || !std::isfinite(frameTime) || frameTime <= 0.0f) {
@@ -352,14 +417,63 @@ float CCollisionWorld::SweepProjectile(const edict_t* projectile, float frameTim
 
     btVector3 center;
     btVector3 halfExtents;
-    if (!GetEntityBounds(projectile, center, halfExtents, false)) {
+    const bool hasExtent = GetEntityBounds(projectile, center, halfExtents, false);
+    if (!hasExtent) {
+        // GoldSrc moves MOVETYPE_FLY projectiles as (velocity + basevelocity)
+        // * frametime (SV_Physics_Bounce); predict the same displacement.
+        const btVector3 velocity(projectile->v.velocity.x + projectile->v.basevelocity.x,
+                                 projectile->v.velocity.y + projectile->v.basevelocity.y,
+                                 projectile->v.velocity.z + projectile->v.basevelocity.z);
+        if (velocity.length2() <= SIMD_EPSILON) {
+            return 1.0f;
+        }
+
+        const int ownerIndex = projectile->v.owner != nullptr ? ENTINDEX(projectile->v.owner) : 0;
+        int ownerFiltered = 0;
+        ++m_sweepCount;
+
+        if (std::fabs(halfExtents.x()) < kPointHullHalfExtent &&
+            std::fabs(halfExtents.y()) < kPointHullHalfExtent &&
+            std::fabs(halfExtents.z()) < kPointHullHalfExtent) {
+            // Zero-hull projectile: GoldSrc traces a line segment (point vs
+            // volume), so a ray matches the engine semantics exactly and is
+            // far cheaper than a polyhedral convex cast.
+            const btVector3 origin(projectile->v.origin.x,
+                                   projectile->v.origin.y,
+                                   projectile->v.origin.z);
+            CProjectileRayCallback callback(ownerIndex,
+                                            ownerIndex > 0 ? &ownerFiltered : nullptr);
+            callback.m_collisionFilterGroup = btBroadphaseProxy::DefaultFilter;
+            callback.m_collisionFilterMask = btBroadphaseProxy::DefaultFilter |
+                                             btBroadphaseProxy::StaticFilter;
+            ++m_rayQueryCount;
+            m_collisionWorld->rayTest(origin, origin + velocity * frameTime, callback);
+            m_ownerFilteredCount += ownerFiltered;
+            return callback.m_closestHitFraction;
+        }
+
+        // Degenerate but non-zero hull: keep the old conservative minimum box.
         halfExtents = btVector3(kMinimumHalfExtent, kMinimumHalfExtent, kMinimumHalfExtent);
-        center = btVector3(projectile->v.origin.x, projectile->v.origin.y, projectile->v.origin.z);
+        center = btVector3(projectile->v.origin.x,
+                           projectile->v.origin.y,
+                           projectile->v.origin.z);
+        const btTransform from = MakeTransform(center);
+        const btTransform to = MakeTransform(center + velocity * frameTime);
+        btBoxShape* projectileShape = ResolveProjectileShape(halfExtents);
+        CProjectileSweepCallback callback(from.getOrigin(), to.getOrigin(),
+                                          ownerIndex, ownerIndex > 0 ? &ownerFiltered : nullptr);
+        callback.m_collisionFilterGroup = btBroadphaseProxy::DefaultFilter;
+        callback.m_collisionFilterMask = btBroadphaseProxy::DefaultFilter |
+                                         btBroadphaseProxy::StaticFilter;
+        ++m_boxQueryCount;
+        m_collisionWorld->convexSweepTest(projectileShape, from, to, callback);
+        m_ownerFilteredCount += ownerFiltered;
+        return callback.m_closestHitFraction;
     }
 
-    const btVector3 velocity(projectile->v.velocity.x,
-                             projectile->v.velocity.y,
-                             projectile->v.velocity.z);
+    const btVector3 velocity(projectile->v.velocity.x + projectile->v.basevelocity.x,
+                             projectile->v.velocity.y + projectile->v.basevelocity.y,
+                             projectile->v.velocity.z + projectile->v.basevelocity.z);
     if (velocity.length2() <= SIMD_EPSILON) {
         return 1.0f;
     }
@@ -377,6 +491,7 @@ float CCollisionWorld::SweepProjectile(const edict_t* projectile, float frameTim
                                      btBroadphaseProxy::StaticFilter;
 
     ++m_sweepCount;
+    ++m_boxQueryCount;
     m_collisionWorld->convexSweepTest(projectileShape, from, to, callback);
     m_ownerFilteredCount += ownerFiltered;
     return callback.m_closestHitFraction;
